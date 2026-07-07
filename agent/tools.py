@@ -96,11 +96,26 @@ create_order_schema = FunctionSchema(
     required=["guest_name", "guest_phone", "items"],
 )
 
+search_knowledge_schema = FunctionSchema(
+    name="search_knowledge",
+    description=(
+        "Search this business's knowledge base (uploaded documents, notes, "
+        "website facts) for a question NOT answered by your instructions. "
+        "Use before saying you don't know. Answer ONLY from what it returns — "
+        "if it returns nothing relevant, say you're not sure and offer a message."
+    ),
+    properties={
+        "query": {"type": "string", "description": "The caller's question, rephrased as a search query"},
+    },
+    required=["query"],
+)
+
 tools = ToolsSchema(standard_tools=[
     check_availability_schema,
     create_reservation_schema,
     create_order_schema,
     take_message_schema,
+    search_knowledge_schema,
 ])
 
 # ------------------------------ handlers ------------------------------
@@ -154,6 +169,12 @@ def make_handlers(slug: str, call_id: str):
         })
         await params.result_callback(result)
 
+    async def search_knowledge(params: FunctionCallParams):
+        result = await _post(f"/agent/{slug}/kb/search", {
+            "query": params.arguments.get("query", ""),
+        })
+        await params.result_callback(result)
+
     async def create_order(params: FunctionCallParams):
         result = await _post(f"/agent/{slug}/orders", {
             **params.arguments,
@@ -191,5 +212,6 @@ def make_handlers(slug: str, call_id: str):
         "create_reservation": create_reservation,
         "create_order": create_order,
         "take_message": take_message,
+        "search_knowledge": search_knowledge,
         "_report_call": report_call,
     }

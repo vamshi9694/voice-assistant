@@ -161,6 +161,33 @@ class MenuDraft(SQLModel, table=True):
     reviewed_at: Optional[datetime] = None
 
 
+class KBDocument(SQLModel, table=True):
+    """A unit of tenant knowledge in the vector store: an uploaded document,
+    a custom note, or a synced snapshot of structured data (FAQs / menu /
+    approved website facts)."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    business_id: int = Field(index=True, foreign_key="business.id")
+    title: str
+    source: str = "note"                 # note | document | faq | menu | website
+    source_url: str = ""
+    content: str = ""                    # full text (chunks reference this doc)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class KBChunk(SQLModel, table=True):
+    """Searchable chunk. embedding_json is a JSON float list (portable across
+    SQLite and Postgres; per-tenant KBs are small, so in-process cosine over
+    the tenant's chunks is fast). business_id is duplicated here so EVERY
+    search query filters by tenant without a join."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    business_id: int = Field(index=True)
+    document_id: int = Field(index=True, foreign_key="kbdocument.id")
+    seq: int = 0
+    text: str = ""
+    embedding_json: str = ""             # "" = not embedded (lexical fallback)
+
+
 class CrawlDraft(SQLModel, table=True):
     """Facts extracted from the tenant's website, awaiting human approval.
     facts_json: [{"type": "address"|"hours"|"faq"|"policy",

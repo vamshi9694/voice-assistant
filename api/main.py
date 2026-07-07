@@ -80,6 +80,10 @@ _ingest.wire(app, db, get_business)
 from . import crawler as _crawler  # noqa: E402
 _crawler.wire(app, db, get_business)
 
+# Per-tenant vector knowledge base (api/vectorkb.py)
+from . import vectorkb as _vectorkb  # noqa: E402
+_vectorkb.wire(app, db, get_business)
+
 
 # ======================= agent-facing (tool backends) =======================
 
