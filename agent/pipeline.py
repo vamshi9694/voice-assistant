@@ -133,11 +133,26 @@ def transport_audio_params() -> dict:
 
     VAD + turn detection are NOT configured here (see module note above) —
     they're attached to the user context aggregator in build_call_task().
+
+    AMBIANCE_FILE (optional): path to a looping background sound (e.g. faint
+    restaurant murmur) mixed UNDER the bot's voice so the call feels like a real
+    place answered — the trick Vapi uses. Keep AMBIANCE_VOLUME low (~0.1–0.2).
     """
-    return dict(
-        audio_in_enabled=True,
-        audio_out_enabled=True,
-    )
+    params = dict(audio_in_enabled=True, audio_out_enabled=True)
+
+    ambiance = os.getenv("AMBIANCE_FILE", "")
+    if ambiance:
+        from pipecat.audio.mixers.soundfile_mixer import SoundfileMixer
+
+        params["audio_out_mixer"] = SoundfileMixer(
+            sound_files={"ambiance": ambiance},
+            default_sound="ambiance",
+            volume=float(os.getenv("AMBIANCE_VOLUME", "0.15")),
+            loop=True,
+        )
+        logger.info(f"Background ambiance ON: {ambiance}")
+
+    return params
 
 
 async def fetch_business_context(slug: str) -> dict:

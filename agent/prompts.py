@@ -14,9 +14,13 @@ LANG_RULES = {
     "en": "- Always reply in English. If speech looks garbled, warmly ask them to repeat.",
     "es": "- Responde SIEMPRE en español, con un tono cálido y natural. Si no "
           "entiendes algo, pide amablemente que lo repitan.",
-    "multi": "- The caller may speak English or Spanish. Detect which they're using "
-             "and ALWAYS reply in that SAME language. If they switch, switch with "
-             "them. Say numbers, dates, and read-backs in the caller's language.",
+    "multi": "- LANGUAGE: default to English. Only if the caller's message is clearly "
+             "and fully in Spanish, reply in Spanish; otherwise reply in English. Once "
+             "you've settled into a language, STAY in it for the rest of the call — do "
+             "NOT flip-flop turn to turn. NEVER mix two languages in one sentence. "
+             "ALWAYS say phone numbers, digits, dates, times and confirmations entirely "
+             "in the language you are speaking — never drop Spanish number words into an "
+             "English sentence or vice versa.",
 }
 
 
