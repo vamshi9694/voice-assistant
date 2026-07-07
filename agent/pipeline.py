@@ -26,6 +26,7 @@ from loguru import logger
 
 from pipecat.frames.frames import TTSSpeakFrame
 from pipecat.audio.vad.silero import SileroVADAnalyzer
+from pipecat.audio.vad.vad_analyzer import VADParams
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.task import PipelineParams, PipelineTask
 from pipecat.processors.aggregators.llm_context import LLMContext
@@ -50,7 +51,7 @@ SMART_TURN = os.getenv("SMART_TURN", "local").lower()
 def build_services():
     """Swappable model layer — the two-tier strategy in code."""
     if STACK == "hosted":
-        from pipecat.services.cartesia.tts import CartesiaTTSService
+        from pipecat.services.cartesia.tts import CartesiaTTSService, GenerationConfig
         from pipecat.services.deepgram.stt import DeepgramSTTService
         from pipecat.services.openai.llm import OpenAILLMService
 
@@ -68,6 +69,12 @@ def build_services():
         tts = CartesiaTTSService(
             api_key=os.getenv("CARTESIA_API_KEY"),
             voice_id=os.getenv("CARTESIA_VOICE_ID", ""),
+            # speed 0.95 = a touch slower than default → warmer, clearer on a
+            # phone line. Range 0.6–1.5. To change the voice itself, swap
+            # CARTESIA_VOICE_ID (audition warm voices at play.cartesia.ai).
+            params=CartesiaTTSService.InputParams(
+                generation_config=GenerationConfig(speed=0.95),
+            ),
         )
     else:
         # Fully local, $0/minute. Requires: ollama serve + `ollama pull qwen2.5:14b`
@@ -125,7 +132,12 @@ async def build_call_task(transport, slug: str, call_id: str | None = None) -> P
     # aggregator in Pipecat 1.5. The VAD analyzer here is what actually emits
     # VADUserStartedSpeakingFrame/VADUserStoppedSpeakingFrame — without it,
     # the STT service never segments audio and speech is never transcribed.
-    user_params = LLMUserAggregatorParams(vad_analyzer=SileroVADAnalyzer())
+    # stop_secs 0.4 (default 0.2 is aggressive → it clips callers mid-sentence).
+    # A touch more grace before deciding they're done makes turn-taking feel
+    # natural without adding much latency.
+    user_params = LLMUserAggregatorParams(
+        vad_analyzer=SileroVADAnalyzer(params=VADParams(stop_secs=0.4)),
+    )
     if SMART_TURN != "off":
         # Imported lazily so the hosted image can skip torch + the model download.
         from pipecat.audio.turn.smart_turn.local_smart_turn_v3 import LocalSmartTurnAnalyzerV3
