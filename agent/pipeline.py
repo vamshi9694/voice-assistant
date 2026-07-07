@@ -43,10 +43,25 @@ CONTROL_PLANE = os.getenv("CONTROL_PLANE_URL", "http://127.0.0.1:8080")
 STACK = os.getenv("STACK", "local")
 # Language: "en" | "es" | "multi" (bilingual auto-detect — Deepgram detects
 # English vs Spanish per utterance, incl. code-switching; the LLM replies in
-# whichever the caller used). "mainly Spanish" → use "multi".
+# whichever the caller used). ENV VALUE IS ONLY A FALLBACK — per-tenant
+# language config from /agent/{slug}/context wins (see resolve_language()).
 LANGUAGE = os.getenv("LANGUAGE", "en").lower()
-# Deepgram language code and Cartesia synthesis language, derived from LANGUAGE.
-_DG_LANG = {"en": "en-US", "es": "es", "multi": "multi"}.get(LANGUAGE, "en-US")
+
+
+def resolve_language(ctx: dict) -> str:
+    """Per-tenant language mode from the control-plane context.
+
+    - auto_detect + >1 enabled language -> "multi" (STT auto-detects per utterance)
+    - otherwise the tenant's default language
+    - tenants without language config (old rows) -> LANGUAGE env fallback
+    """
+    langs = ctx.get("languages") or {}
+    if not langs:
+        return LANGUAGE
+    enabled = langs.get("enabled") or [langs.get("default", "en")]
+    if langs.get("auto_detect") and len(enabled) > 1:
+        return "multi"
+    return (langs.get("default") or "en").lower()
 # Semantic endpointing. "local" = Smart Turn v3 (best perceived latency, but
 # pulls torch + a model download — heavy for a cloud image). "off" = rely on
 # Silero VAD + the STT provider's endpointing (Deepgram has its own), which
@@ -54,14 +69,22 @@ _DG_LANG = {"en": "en-US", "es": "es", "multi": "multi"}.get(LANGUAGE, "en-US")
 SMART_TURN = os.getenv("SMART_TURN", "local").lower()
 
 
-def build_services():
-    """Swappable model layer — the two-tier strategy in code."""
+def build_services(language: str = "en", voices: dict | None = None):
+    """Swappable model layer — the two-tier strategy in code.
+
+    language: per-tenant mode ("en"/"es"/"multi") from resolve_language().
+    voices:   per-tenant {lang: voice_id} map (Business.voice_map). The voice
+              for the tenant's primary language wins; env vars are fallback.
+    """
+    voices = voices or {}
+    primary = language if language != "multi" else "en"
     if STACK == "hosted":
         from pipecat.services.cartesia.tts import CartesiaTTSService, GenerationConfig
         from pipecat.services.deepgram.stt import DeepgramSTTService
         from pipecat.services.openai.llm import OpenAILLMService
         from pipecat.transcriptions.language import Language
 
+        dg_lang = {"en": "en-US", "es": "es", "multi": "multi"}.get(language, "en-US")
         stt = DeepgramSTTService(
             api_key=os.getenv("DEEPGRAM_API_KEY"),
             # numerals: "one two three" -> "123" — essential for phone numbers,
@@ -71,23 +94,22 @@ def build_services():
             settings=DeepgramSTTService.Settings(
                 numerals=True,
                 smart_format=True,
-                language=_DG_LANG,
+                language=dg_lang,
             ),
         )
         llm = OpenAILLMService(model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"))
         # Cartesia synthesis language. Bilingual ("multi") defaults to English;
         # sonic-3.5 is multilingual so Spanish replies still render acceptably
-        # through the same voice (swap to a Spanish voice if you want perfect
-        # Spanish pronunciation).
+        # through the same voice (set a per-language voice in the tenant's
+        # voice_map for perfect pronunciation).
         _tts_lang = {"en": Language.EN, "es": Language.ES, "multi": Language.EN}.get(
-            LANGUAGE, Language.EN
+            language, Language.EN
         )
         tts = CartesiaTTSService(
             api_key=os.getenv("CARTESIA_API_KEY"),
-            voice_id=os.getenv("CARTESIA_VOICE_ID", ""),
+            voice_id=voices.get(primary) or os.getenv("CARTESIA_VOICE_ID", ""),
             # speed 0.95 = a touch slower than default → warmer, clearer on a
-            # phone line. Range 0.6–1.5. To change the voice itself, swap
-            # CARTESIA_VOICE_ID (audition warm voices at play.cartesia.ai).
+            # phone line. Range 0.6–1.5.
             params=CartesiaTTSService.InputParams(
                 language=_tts_lang,
                 generation_config=GenerationConfig(speed=0.95),
@@ -124,7 +146,7 @@ def build_services():
             model=os.getenv("OLLAMA_MODEL", "qwen2.5:14b"),
             base_url=os.getenv("OLLAMA_URL", "http://localhost:11434/v1"),
         )
-        tts = KokoroTTSService(voice_id=os.getenv("KOKORO_VOICE", "af_heart"))
+        tts = KokoroTTSService(voice_id=voices.get(primary) or os.getenv("KOKORO_VOICE", "af_heart"))
     return stt, llm, tts
 
 
@@ -176,12 +198,21 @@ async def fetch_business_context(slug: str) -> dict:
         return r.json()
 
 
-async def build_call_task(transport, slug: str, call_id: str | None = None) -> PipelineTask:
-    """Assemble the per-call pipeline: one call = one task = one worker."""
+async def build_call_task(
+    transport, slug: str, call_id: str | None = None,
+    caller_phone: str = "", called_number: str = "",
+) -> PipelineTask:
+    """Assemble the per-call pipeline: one call = one task = one worker.
+
+    Tenant isolation: `ctx` is fetched for THIS slug only; every tool handler
+    closes over THIS slug; nothing tenant-scoped comes from process env."""
     call_id = call_id or str(uuid.uuid4())
     ctx = await fetch_business_context(slug)
 
-    stt, llm, tts = build_services()
+    language = resolve_language(ctx)
+    voices = (ctx.get("languages") or {}).get("voices") or {}
+    logger.info(f"[{call_id}] language mode '{language}' voices={voices or '(env default)'}")
+    stt, llm, tts = build_services(language=language, voices=voices)
 
     # FLOWS=on runs the booking as a state machine (agent/flow.py); the flow
     # registers per-node functions itself. Otherwise use the single big prompt
@@ -196,7 +227,7 @@ async def build_call_task(transport, slug: str, call_id: str | None = None) -> P
         for name, fn in handlers.items():
             if not name.startswith("_"):
                 llm.register_function(name, fn)
-        system_prompt = build_system_prompt(ctx, datetime.now(), language=LANGUAGE)
+        system_prompt = build_system_prompt(ctx, datetime.now(), language=language)
         context = LLMContext(
             messages=[{"role": "system", "content": system_prompt}],
             tools=tools,
@@ -273,7 +304,7 @@ async def build_call_task(transport, slug: str, call_id: str | None = None) -> P
         "es": f"¡Gracias por llamar a {biz['name']}! Soy el asistente virtual, ¿en qué puedo ayudarle?",
         "multi": _greeting_en,
     }
-    greeting = biz.get("greeting") or _greetings.get(LANGUAGE, _greetings["en"])
+    greeting = biz.get("greeting") or _greetings.get(language, _greetings["en"])
 
     # State-machine mode: build the FlowManager now, initialize it on connect
     # (after the greeting) so the flow drives the conversation from turn one.
@@ -291,7 +322,7 @@ async def build_call_task(transport, slug: str, call_id: str | None = None) -> P
         if flow_manager is not None:
             from .flow import build_initial_node
             await flow_manager.initialize(
-                build_initial_node(ctx, slug, call_id, LANGUAGE, datetime.now())
+                build_initial_node(ctx, slug, call_id, language, datetime.now())
             )
 
     @transport.event_handler("on_client_disconnected")
@@ -302,7 +333,10 @@ async def build_call_task(transport, slug: str, call_id: str | None = None) -> P
             f"{m.get('role')}: {m.get('content')}"
             for m in context.get_messages() if isinstance(m.get("content"), str)
         )
-        await handlers["_report_call"]("faq", "call ended", transcript)
+        await handlers["_report_call"](
+            "faq", "call ended", transcript,
+            caller_phone=caller_phone, called_number=called_number, language=language,
+        )
         await task.cancel()
 
     return task

@@ -16,10 +16,28 @@ from pydantic import BaseModel
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from . import availability, notify
+from .idempotency import idem_get, idem_put
 from .models import (
     Business, CallOutcome, CallRecord, KBEntry, Message, Reservation, ReservationStatus,
     ServicePeriod, Urgency,
 )
+
+PHONE_DIGITS_RE = __import__("re").compile(r"\d")
+
+
+def require_callback_phone(raw: str) -> str:
+    """Safety rule: a usable callback number is required for reservations,
+    orders, and messages. Accepts E.164 or national format; requires >= 10
+    digits (or 9 starting with 0 dropped after a country code, e.g. AU mobiles
+    +61 4xx xxx xxx). Returns normalized digits, raises 422 otherwise."""
+    digits = "".join(PHONE_DIGITS_RE.findall(raw or ""))
+    if raw and raw.strip().startswith("+") and len(digits) >= 10:
+        return "+" + digits
+    if len(digits) == 10 or (len(digits) == 9 and not digits.startswith("0")):
+        return digits
+    if len(digits) == 11 and digits.startswith(("0", "1")):
+        return digits
+    raise HTTPException(422, "callback phone must be a valid 10-digit number")
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./receptionist.db")
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False} if "sqlite" in DATABASE_URL else {})
@@ -46,6 +64,11 @@ def get_business(session: Session, slug: str) -> Business:
     return biz
 
 
+# Tenant routing + admin + business-config routes (api/tenants.py)
+from . import tenants as _tenants  # noqa: E402
+_tenants.wire(app, db)
+
+
 # ======================= agent-facing (tool backends) =======================
 
 @app.get("/agent/{slug}/context")
@@ -60,6 +83,13 @@ def agent_context(slug: str, session: Session = Depends(db)):
     ).all()
     return {
         "business": biz.model_dump(exclude={"id"}),
+        "languages": {
+            "default": biz.default_language,
+            "enabled": biz.enabled_langs(),
+            "auto_detect": biz.auto_detect_language,
+            "voices": biz.voices(),
+            "fallback": biz.language_fallback,
+        },
         "kb": [{"topic": k.topic, "answer": k.answer} for k in kb],
         "hours": [
             {"day": p.day_of_week, "name": p.name,
@@ -91,15 +121,31 @@ class ReservationCreate(BaseModel):
     guest_phone: str
     notes: str = ""
     call_id: str | None = None
+    idempotency_key: str | None = None
 
 
 @app.post("/agent/{slug}/reservations")
 def create_reservation(slug: str, r: ReservationCreate, session: Session = Depends(db)):
     biz = get_business(session, slug)
+    cached = idem_get(session, biz.id, r.idempotency_key, "reservations")
+    if cached is not None:
+        return cached
+    r.guest_phone = require_callback_phone(r.guest_phone)
+    # Large-party threshold: never auto-book above it — the agent should take
+    # a message / escalate instead. Enforced server-side, not just in prompt.
+    if r.party_size > biz.max_party_size:
+        return {
+            "created": False,
+            "reason": f"party of {r.party_size} exceeds the {biz.max_party_size}-person limit; "
+                      "take a message for the manager instead",
+        }
     # Re-check capacity at write time (two callers can race on Friday 7pm).
     res = availability.check_availability(session, biz, r.date, r.time, r.party_size)
     if not res.available:
-        return {"created": False, "reason": res.reason, "alternatives": res.alternatives or []}
+        resp = {"created": False, "reason": res.reason, "alternatives": res.alternatives or []}
+        idem_put(session, biz.id, r.idempotency_key, "reservations", resp)
+        session.commit()
+        return resp
     row = Reservation(
         business_id=biz.id, on_date=r.date, at_time=r.time, party_size=r.party_size,
         guest_name=r.guest_name, guest_phone=r.guest_phone, notes=r.notes, call_id=r.call_id,
@@ -107,8 +153,11 @@ def create_reservation(slug: str, r: ReservationCreate, session: Session = Depen
     session.add(row)
     session.commit()
     session.refresh(row)
+    resp = {"created": True, "reservation_id": row.id}
+    idem_put(session, biz.id, r.idempotency_key, "reservations", resp)
+    session.commit()
     notify.notify_reservation(biz, row)
-    return {"created": True, "reservation_id": row.id}
+    return resp
 
 
 class MessageCreate(BaseModel):
@@ -117,22 +166,32 @@ class MessageCreate(BaseModel):
     reason: str
     urgency: Urgency = Urgency.normal
     call_id: str | None = None
+    idempotency_key: str | None = None
 
 
 @app.post("/agent/{slug}/messages")
 def take_message(slug: str, m: MessageCreate, session: Session = Depends(db)):
     biz = get_business(session, slug)
-    row = Message(business_id=biz.id, **m.model_dump())
+    cached = idem_get(session, biz.id, m.idempotency_key, "messages")
+    if cached is not None:
+        return cached
+    m.caller_phone = require_callback_phone(m.caller_phone)
+    row = Message(business_id=biz.id, **m.model_dump(exclude={"idempotency_key"}))
     session.add(row)
     session.commit()
     session.refresh(row)
+    resp = {"created": True, "message_id": row.id}
+    idem_put(session, biz.id, m.idempotency_key, "messages", resp)
+    session.commit()
     notify.notify_message(biz, row)
-    return {"created": True, "message_id": row.id}
+    return resp
 
 
 class CallReport(BaseModel):
     call_id: str
     caller_phone: str = ""
+    called_number: str = ""
+    language: str = ""
     outcome: CallOutcome | None = None
     summary: str = ""
     transcript: str = ""
@@ -144,6 +203,7 @@ def report_call(slug: str, c: CallReport, session: Session = Depends(db)):
     biz = get_business(session, slug)
     row = CallRecord(
         business_id=biz.id, call_id=c.call_id, caller_phone=c.caller_phone,
+        called_number=c.called_number, language=c.language,
         outcome=c.outcome, summary=c.summary, transcript=c.transcript,
         ended_at=datetime.utcnow(),
     )

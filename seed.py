@@ -1,13 +1,19 @@
-"""Seed a demo restaurant so the whole system runs out of the box.
+"""Seed TWO demo restaurants (multi-tenant from the first boot) with routed
+phone numbers, language config, and per-tenant KBs.
 
     python seed.py
+
+Set the numbers to your real Twilio numbers via env before seeding, or update
+later with POST /admin/numbers:
+    LUIGIS_NUMBER=+61370000001 TACOS_NUMBER=+61370000002 python seed.py
 """
+import os
 from datetime import time
 
 from sqlmodel import Session, SQLModel, select
 
 from api.main import engine
-from api.models import Business, KBEntry, ServicePeriod
+from api.models import Business, KBEntry, PhoneNumber, ServicePeriod
 
 
 def seed():
@@ -17,19 +23,35 @@ def seed():
             print("already seeded")
             return
 
+        # ------------------- Tenant 1: Luigi's (en, dinner-led) -------------------
         biz = Business(
             slug="luigis-carlton",
             name="Luigi's Trattoria",
             address="123 Lygon Street, Carlton, Melbourne",
+            website="https://luigis-carlton.example.com",
             owner_mobile="+61400000000",
+            manager_phone="+61400000001",
+            manager_email="manager@luigis.example.com",
             phone_forward_to="+61390000000",
             covers_per_slot=12,
             max_party_size=8,
+            reservation_notes="No bookings after 8:30pm Fridays; window seats on request only.",
+            orders_enabled=False,
+            order_policy_notes="No phone orders — dine-in and reservations only.",
+            default_language="en",
+            enabled_languages='["en"]',
             persona_notes="Warm, a little playful, proudly Italian. Never rushed.",
+            escalation_rules="Escalate complaints, media enquiries, and functions over 20 people "
+                             "to the manager immediately (urgent message).",
         )
         s.add(biz)
         s.commit()
         s.refresh(biz)
+
+        s.add(PhoneNumber(
+            e164=os.getenv("LUIGIS_NUMBER", "+61370000001"),
+            business_id=biz.id, label="main line",
+        ))
 
         # Tue-Sun dinner; Fri-Sun also lunch. Closed Mondays.
         for dow in range(1, 7):  # Tue(1)..Sun(6)
@@ -57,8 +79,51 @@ def seed():
         for topic, answer in kb.items():
             s.add(KBEntry(business_id=biz.id, topic=topic, answer=answer))
 
+        # --------------- Tenant 2: Tacos El Rey (bilingual, takeout) ---------------
+        biz2 = Business(
+            slug="tacos-el-rey",
+            name="Tacos El Rey",
+            address="45 Sydney Road, Brunswick, Melbourne",
+            website="https://tacos-el-rey.example.com",
+            owner_mobile="+61400000100",
+            manager_phone="+61400000101",
+            manager_email="manager@tacoselrey.example.com",
+            covers_per_slot=8,
+            max_party_size=6,
+            orders_enabled=True,
+            order_pickup_minutes=15,
+            order_policy_notes="Phone orders for PICKUP only, pay in store. No delivery.",
+            default_language="en",
+            enabled_languages='["en","es"]',
+            auto_detect_language=True,
+            persona_notes="Upbeat, casual, bilingual. Short answers.",
+            escalation_rules="Escalate catering requests and complaints to the manager.",
+        )
+        s.add(biz2)
         s.commit()
-        print("seeded: luigis-carlton")
+        s.refresh(biz2)
+
+        s.add(PhoneNumber(
+            e164=os.getenv("TACOS_NUMBER", "+61370000002"),
+            business_id=biz2.id, label="main line",
+        ))
+
+        for dow in range(0, 7):  # open every day, all-day service
+            s.add(ServicePeriod(
+                business_id=biz2.id, day_of_week=dow, name="all-day",
+                opens=time(11, 0), last_seating=time(21, 30), closes=time(22, 0),
+            ))
+
+        kb2 = {
+            "parking": "Free 1-hour parking on Sydney Rd side streets.",
+            "salsa heat": "Salsas from mild to muy picante — ask for a taste.",
+            "catering": "Catering for 10+ people with 48 hours notice — the manager calls back to confirm.",
+        }
+        for topic, answer in kb2.items():
+            s.add(KBEntry(business_id=biz2.id, topic=topic, answer=answer))
+
+        s.commit()
+        print("seeded: luigis-carlton (+61370000001), tacos-el-rey (+61370000002)")
 
 
 if __name__ == "__main__":

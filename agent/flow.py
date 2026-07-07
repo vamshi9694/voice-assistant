@@ -60,6 +60,19 @@ contractions, keep replies to one short sentence, ask ONE thing at a time, and \
 never sound like a corporate bot. Read phone numbers back digit by digit.
 {lang_rule}
 
+WHAT YOU HANDLE — and what you don't:
+- You can book reservations, answer questions from the knowledge below, and take \
+messages. That's it.
+- You do NOT take food, drink, or takeaway/delivery orders over the phone. If a \
+caller tries to order food, warmly explain you can't take orders by phone, and \
+offer to book them a table or take a message instead. Never walk a caller through \
+a food order.
+- Parties larger than {max_party} can't be booked online — take a message for the \
+manager instead.
+- Allergy/dietary questions: answer ONLY from the knowledge below; if it's not \
+covered, say you'd rather not guess and offer a callback.
+- Never invent menu items, prices, or availability.
+
 BUSINESS KNOWLEDGE (answer questions from this directly, no tools):
 {kb_lines}
 
@@ -189,10 +202,11 @@ You have already greeted the caller out loud — do not greet again."""
             "name": "greeting",
             "role_message": role,
             "task_messages": [{"role": "system", "content":
-                "Figure out what the caller wants. Answer any questions from the knowledge above "
+                "Figure out what the caller wants. Answer questions from the knowledge above "
                 "directly (no tools). If they want to book a table, call start_booking. If they want "
                 "to leave a message, a manager, or raise something you can't handle, call "
-                "start_message."}],
+                "start_message. If they try to ORDER FOOD or takeaway, do NOT take the order — warmly "
+                "say you can't take orders by phone and offer to book a table or take a message."}],
             "functions": [start_booking, start_message],
             "respond_immediately": False,  # we already greeted via TTS; wait for the caller
         }

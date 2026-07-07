@@ -6,6 +6,8 @@ Design rules from the platform spec:
   error the LLM can speak around ("I'm having trouble with the booking system,
   let me take a message instead").
 """
+import hashlib
+import json
 import os
 
 import httpx
@@ -82,8 +84,18 @@ def _clean_phone(raw: str) -> str:
     return ("+" + digits) if raw.strip().startswith("+") else digits
 
 
+def _idem_key(call_id: str, tool: str, args: dict) -> str:
+    """Deterministic idempotency key: same call + same tool + same arguments
+    = same key, so an LLM retry or duplicated tool call can't double-book.
+    Different arguments (caller changed the time) get a fresh key."""
+    blob = json.dumps(args, sort_keys=True, default=str)
+    return hashlib.sha1(f"{call_id}|{tool}|{blob}".encode()).hexdigest()
+
+
 def make_handlers(slug: str, call_id: str):
-    """Handlers close over the tenant slug + call id (multi-tenant safe)."""
+    """Handlers close over the tenant slug + call id (multi-tenant safe).
+    Every mutating call carries the tenant (slug in the URL path) AND an
+    idempotency_key — the two hard safety rules for tool calls."""
     client = httpx.AsyncClient(base_url=CONTROL_PLANE, timeout=5.0)
 
     async def _post(path: str, payload: dict) -> dict:
@@ -107,6 +119,7 @@ def make_handlers(slug: str, call_id: str):
             "guest_phone": _clean_phone(params.arguments.get("guest_phone", "")),
             "notes": params.arguments.get("notes", ""),
             "call_id": call_id,
+            "idempotency_key": _idem_key(call_id, "create_reservation", params.arguments),
         })
         await params.result_callback(result)
 
@@ -116,13 +129,18 @@ def make_handlers(slug: str, call_id: str):
             "caller_phone": _clean_phone(params.arguments.get("caller_phone", "")),
             "urgency": params.arguments.get("urgency", "normal"),
             "call_id": call_id,
+            "idempotency_key": _idem_key(call_id, "take_message", params.arguments),
         })
         await params.result_callback(result)
 
-    async def report_call(outcome: str, summary: str, transcript: str, caller_phone: str = ""):
+    async def report_call(
+        outcome: str, summary: str, transcript: str,
+        caller_phone: str = "", called_number: str = "", language: str = "",
+    ):
         """Not an LLM tool — called by the pipeline at call end."""
         await _post(f"/agent/{slug}/calls", {
             "call_id": call_id, "caller_phone": caller_phone,
+            "called_number": called_number, "language": language,
             "outcome": outcome, "summary": summary, "transcript": transcript,
         })
         await client.aclose()
