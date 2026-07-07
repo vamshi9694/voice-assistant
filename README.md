@@ -32,18 +32,57 @@ two-tier strategy from the design docs, in one line of config.
 receptionist/
 ├── agent/                  # MEDIA PLANE (one process per deployment, one task per call)
 │   ├── bot.py              #   entry point: browser WebRTC (dev) + Twilio (phone)
+│   ├── telephony.py        #   /voice webhook: called number -> tenant routing
 │   ├── pipeline.py         #   pipeline factory: STT→LLM→TTS + VAD/SmartTurn + tools
-│   ├── tools.py            #   LLM tool schemas + handlers (HTTP → control plane)
-│   └── prompts.py          #   system prompt with injected business context/KB
+│   ├── tools.py            #   LLM tools (reserve/order/message/search) + idempotency keys
+│   ├── qa.py               #   QA observer: latency, dead-air, "hello?", tool failures
+│   └── prompts.py          #   system prompt: business context, menu, safety rules
 ├── api/                    # CONTROL PLANE (normal web backend)
-│   ├── main.py             #   /agent/* tool backends + /owner/* endpoints
-│   ├── models.py           #   Business, ServicePeriod, KB, Reservation, Message, CallRecord
+│   ├── main.py             #   /agent/* tool backends + /owner/* + dashboards
+│   ├── models.py           #   Business, PhoneNumber, Menu, Order, KB, drafts, users, events
+│   ├── auth.py             #   JWT auth: platform_admin / tenant_admin RBAC
+│   ├── tenants.py          #   number->tenant resolve, admin CRUD, hours/holidays
+│   ├── menu.py             #   menu CRUD + server-validated pickup orders
+│   ├── ingest.py           #   menu ingestion: CSV/PDF/image/URL -> draft -> approve
+│   ├── crawler.py          #   approved-domain website crawl -> draft -> approve
+│   ├── vectorkb.py         #   tenant-scoped vector KB (notes/docs/synced facts)
+│   ├── metrics.py          #   call QA metrics ingest + per-tenant summaries
+│   ├── idempotency.py      #   server-side dedupe for all mutating tools
 │   ├── availability.py     #   capacity engine + alternative-time suggestions
-│   └── notify.py           #   SMS alerts + daily digest composer
-├── seed.py                 # demo restaurant (Luigi's Trattoria, Carlton)
+│   ├── notify.py           #   SMS alerts (bookings/orders/messages) + daily digest
+│   └── static/             #   client.html (/app), admin.html (/admin-ui)
+├── seed.py                 # TWO demo tenants with routed numbers + users
+├── verify.py               # end-to-end test suite (python verify.py)
 ├── requirements.txt
 └── .env.example
 ```
+
+## Multi-tenant call flow
+
+1. Twilio POSTs the call to `https://<voice-host>/voice` (`agent/telephony.py`).
+2. The webhook resolves the CALLED number via `GET /agent/resolve?to=+E164`
+   and passes `slug`/`to`/`from` into the media stream as parameters.
+3. `bot.py` builds the pipeline with only that tenant's config: menu, hours,
+   KB, languages (default / enabled / auto-detect / per-language voice),
+   reservation + order policy, persona, escalation rules.
+4. Every mutating tool call carries the tenant (URL path) + an
+   `idempotency_key`; the control plane enforces the safety rules server-side
+   (no invented menu items, prices from DB, 10-digit callback numbers,
+   large-party threshold, no confirmation without tool success).
+
+## Dashboards
+
+- `/app` — restaurant dashboard (tenant admins): settings, hours + holidays,
+  menu + ingestion (CSV/PDF/photo/URL with draft approval), website crawl
+  approvals, knowledge base + test search, reservations/orders/messages/calls.
+- `/admin-ui` — platform dashboard: tenants, phone numbers, users, per-tenant
+  health + call-quality metrics (latency, dead air, "hello?" retries, tool
+  failures, duplicates, low-confidence transcripts).
+- Seed logins: `admin@platform.local/admin123`, `owner@luigis.local/owner123`,
+  `owner@tacos.local/owner123`. Set `AUTH_SECRET` in prod; `AUTH_DISABLED=1`
+  for local hacking.
+
+Run the full test suite any time: `python verify.py` (37 checks, no network).
 
 ## Quickstart (local, $0 — your M5 Pro)
 
