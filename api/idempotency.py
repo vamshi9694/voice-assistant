@@ -35,6 +35,12 @@ def idem_get(session: Session, business_id: int, key: Optional[str], endpoint: s
         except Exception:
             return None
         resp["idempotent_replay"] = True
+        # QA metric: a replayed key means something retried a mutating call —
+        # exactly the duplicate the dashboard should surface.
+        from .models import CallEvent, CallEventKind
+        session.add(CallEvent(business_id=business_id, kind=CallEventKind.duplicate,
+                              detail=f"{endpoint} key={key[:16]}"))
+        session.commit()
         return resp
     return None
 

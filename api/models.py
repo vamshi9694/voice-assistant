@@ -288,6 +288,31 @@ class CallOutcome(str, Enum):
     abandoned = "abandoned"
 
 
+class CallEventKind(str, Enum):
+    stt_ttfb = "stt_ttfb"            # ms to first STT byte
+    llm_ttfb = "llm_ttfb"            # ms to first LLM token
+    tts_ttfb = "tts_ttfb"            # ms to first TTS audio
+    turn_e2e = "turn_e2e"            # end-to-end turn latency
+    tool_latency = "tool_latency"    # tool round-trip ms
+    dead_air = "dead_air"            # caller waited > threshold with no audio
+    hello_retry = "hello_retry"      # caller said "hello?" / "are you there?"
+    tool_failure = "tool_failure"    # tool returned an error
+    duplicate = "duplicate"          # idempotency replay caught a duplicate
+    low_confidence = "low_confidence"  # STT transcript below confidence floor
+
+
+class CallEvent(SQLModel, table=True):
+    """One QA/latency event. Written by the media plane during calls (batched)
+    and by the control plane itself (duplicates). Aggregated for dashboards."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    business_id: int = Field(index=True)
+    call_id: str = Field(default="", index=True)
+    kind: CallEventKind
+    value_ms: Optional[float] = None
+    detail: str = ""
+    created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+
+
 class CallRecord(SQLModel, table=True):
     """One row per call; the digest is an aggregation over these."""
     id: Optional[int] = Field(default=None, primary_key=True)

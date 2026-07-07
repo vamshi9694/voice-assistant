@@ -88,6 +88,10 @@ _crawler.wire(app, db, get_business)
 from . import vectorkb as _vectorkb  # noqa: E402
 _vectorkb.wire(app, db, get_business)
 
+# Call QA metrics ingest + summaries (api/metrics.py)
+from . import metrics as _metrics  # noqa: E402
+_metrics.wire(app, db, get_business)
+
 # ------------------------- dashboards (SPAs) -------------------------
 import pathlib  # noqa: E402
 from fastapi.responses import HTMLResponse, RedirectResponse  # noqa: E402

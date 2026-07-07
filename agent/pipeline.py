@@ -37,6 +37,7 @@ from pipecat.processors.aggregators.llm_response_universal import (
 
 from .monitor import MonitorObserver
 from .prompts import build_system_prompt
+from .qa import QAObserver
 from .tools import make_handlers, tools
 
 CONTROL_PLANE = os.getenv("CONTROL_PLANE_URL", "http://127.0.0.1:8080")
@@ -280,14 +281,16 @@ async def build_call_task(
         aggregators.assistant(),      # assistant turn -> context
     ])
 
+    qa = QAObserver(slug, call_id)
     task = PipelineTask(
         pipeline,
         params=PipelineParams(
             allow_interruptions=True,     # barge-in: caller speech cancels TTS+LLM
             enable_metrics=True,          # per-stage latency (TTFT etc.) in logs
         ),
-        # Feeds the live /monitor page: transcript, tool calls, per-stage latency.
-        observers=[MonitorObserver()],
+        # MonitorObserver feeds the live /monitor page; QAObserver persists
+        # latency + dead-air/"hello?"/tool-failure events to the control plane.
+        observers=[MonitorObserver(), qa],
     )
 
     # Speak the greeting DIRECTLY via TTS on connect — no LLM round-trip.
@@ -333,6 +336,7 @@ async def build_call_task(
             f"{m.get('role')}: {m.get('content')}"
             for m in context.get_messages() if isinstance(m.get("content"), str)
         )
+        await qa.flush()   # persist any buffered QA events before teardown
         await handlers["_report_call"](
             "faq", "call ended", transcript,
             caller_phone=caller_phone, called_number=called_number, language=language,
