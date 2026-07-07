@@ -14,14 +14,30 @@ TWILIO_SID = os.getenv("TWILIO_ACCOUNT_SID", "")
 TWILIO_TOKEN = os.getenv("TWILIO_AUTH_TOKEN", "")
 TWILIO_FROM = os.getenv("TWILIO_FROM_NUMBER", "")
 
+# SMS is DISABLED for now (see send_sms). Set SMS_ENABLED=1 to turn it back on
+# once you have valid owner/guest numbers — the sending code is kept intact.
+SMS_ENABLED = os.getenv("SMS_ENABLED", "0") == "1"
+
 
 def send_sms(to: str, body: str) -> None:
+    # SMS turned off for now: just log what WOULD have been sent, never call
+    # Twilio. This keeps bookings/messages working (and can't 500 on a bad
+    # number) while notifications are parked.
+    if not SMS_ENABLED:
+        print(f"\n[SMS disabled -> {to or 'unset'}]\n{body}\n")
+        return
+
     if not (TWILIO_SID and TWILIO_TOKEN and TWILIO_FROM and to):
         print(f"\n[SMS -> {to or 'unset'}]\n{body}\n")  # dev fallback
         return
-    from twilio.rest import Client  # lazy import; optional dep in dev
+    try:
+        from twilio.rest import Client  # lazy import; optional dep in dev
 
-    Client(TWILIO_SID, TWILIO_TOKEN).messages.create(to=to, from_=TWILIO_FROM, body=body)
+        Client(TWILIO_SID, TWILIO_TOKEN).messages.create(to=to, from_=TWILIO_FROM, body=body)
+    except Exception as e:  # noqa: BLE001
+        # Best-effort ONLY: a failed text (invalid number, Twilio hiccup) must
+        # never bubble up and 500 the booking/message that triggered it.
+        print(f"[SMS FAILED -> {to}] {type(e).__name__}: {e}")
 
 
 # ---------- instant alerts ----------
