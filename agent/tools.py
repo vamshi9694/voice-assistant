@@ -66,9 +66,40 @@ take_message_schema = FunctionSchema(
     required=["caller_name", "caller_phone", "reason"],
 )
 
+create_order_schema = FunctionSchema(
+    name="create_order",
+    description=(
+        "Place a pickup order. Call ONLY after reading back the full order "
+        "(items, quantities, total) and the caller has confirmed. Item names "
+        "must come from the MENU section of your instructions — never invent "
+        "items. If the result has unknown_items, apologize, re-check the menu "
+        "with the caller, and try again with corrected names."
+    ),
+    properties={
+        "guest_name": {"type": "string"},
+        "guest_phone": {"type": "string", "description": "Caller mobile for pickup contact, digits only"},
+        "items": {
+            "type": "array",
+            "description": "Order lines",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "EXACT menu item name"},
+                    "qty": {"type": "integer"},
+                    "notes": {"type": "string", "description": "e.g. 'no onion'"},
+                },
+                "required": ["name", "qty"],
+            },
+        },
+        "notes": {"type": "string", "description": "Whole-order notes, optional"},
+    },
+    required=["guest_name", "guest_phone", "items"],
+)
+
 tools = ToolsSchema(standard_tools=[
     check_availability_schema,
     create_reservation_schema,
+    create_order_schema,
     take_message_schema,
 ])
 
@@ -123,6 +154,16 @@ def make_handlers(slug: str, call_id: str):
         })
         await params.result_callback(result)
 
+    async def create_order(params: FunctionCallParams):
+        result = await _post(f"/agent/{slug}/orders", {
+            **params.arguments,
+            "guest_phone": _clean_phone(params.arguments.get("guest_phone", "")),
+            "notes": params.arguments.get("notes", ""),
+            "call_id": call_id,
+            "idempotency_key": _idem_key(call_id, "create_order", params.arguments),
+        })
+        await params.result_callback(result)
+
     async def take_message(params: FunctionCallParams):
         result = await _post(f"/agent/{slug}/messages", {
             **params.arguments,
@@ -148,6 +189,7 @@ def make_handlers(slug: str, call_id: str):
     return {
         "check_availability": check_availability,
         "create_reservation": create_reservation,
+        "create_order": create_order,
         "take_message": take_message,
         "_report_call": report_call,
     }

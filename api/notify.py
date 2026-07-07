@@ -60,10 +60,30 @@ def notify_reservation(biz: Business, r: Reservation) -> None:
 
 def notify_message(biz: Business, m: Message) -> None:
     prefix = "⚠️ URGENT — " if m.urgency == "urgent" else "✉️ "
+    # Escalations go to the manager line when set, otherwise the owner.
+    target = (biz.manager_phone or biz.owner_mobile) if m.urgency == "urgent" else biz.owner_mobile
     send_sms(
-        biz.owner_mobile,
+        target,
         f"{prefix}Message @ {biz.name}: {m.caller_name} ({m.caller_phone}) — {m.reason}",
     )
+
+
+def notify_order(biz: Business, order) -> None:
+    import json as _json
+    items = _json.loads(order.items_json or "[]")
+    lines = ", ".join(f"{i['qty']}x {i['name']}" for i in items)
+    send_sms(
+        biz.owner_mobile,
+        f"🛍️ Pickup order #{order.id} @ {biz.name}: {lines}. Total ${order.total:.2f}. "
+        f"{order.guest_name}, {order.guest_phone}, ready in ~{order.pickup_minutes} min."
+        + (f" Note: {order.notes}" if order.notes else ""),
+    )
+    if order.guest_phone:
+        send_sms(
+            order.guest_phone,
+            f"{biz.name}: order #{order.id} received — {lines}, ${order.total:.2f}. "
+            f"Ready for pickup in about {order.pickup_minutes} minutes.",
+        )
 
 
 # ---------- daily digest ----------

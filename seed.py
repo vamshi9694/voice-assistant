@@ -13,7 +13,7 @@ from datetime import time
 from sqlmodel import Session, SQLModel, select
 
 from api.main import engine
-from api.models import Business, KBEntry, PhoneNumber, ServicePeriod
+from api.models import Business, KBEntry, MenuItem, PhoneNumber, ServicePeriod
 
 
 def seed():
@@ -79,6 +79,19 @@ def seed():
         for topic, answer in kb.items():
             s.add(KBEntry(business_id=biz.id, topic=topic, answer=answer))
 
+        menu1 = [
+            ("Antipasti", "Garlic bread", 9.0, "V"),
+            ("Antipasti", "Burrata with heirloom tomatoes", 18.0, "GF, V"),
+            ("Pasta", "Spaghetti carbonara", 28.0, ""),
+            ("Pasta", "Pappardelle with slow-cooked ragu", 32.0, ""),
+            ("Pasta", "Gnocchi gorgonzola", 29.0, "V"),
+            ("Mains", "Chicken saltimbocca", 36.0, "GF"),
+            ("Dolci", "Tiramisu", 15.0, "V"),
+        ]
+        for section, name, price, dietary in menu1:
+            s.add(MenuItem(business_id=biz.id, section=section, name=name,
+                           price=price, dietary=dietary))
+
         # --------------- Tenant 2: Tacos El Rey (bilingual, takeout) ---------------
         biz2 = Business(
             slug="tacos-el-rey",
@@ -121,6 +134,20 @@ def seed():
         }
         for topic, answer in kb2.items():
             s.add(KBEntry(business_id=biz2.id, topic=topic, answer=answer))
+
+        menu2 = [
+            ("Tacos", "Al pastor taco", 6.5, ""),
+            ("Tacos", "Carnitas taco", 6.5, "GF"),
+            ("Tacos", "Baja fish taco", 7.5, ""),
+            ("Tacos", "Mushroom taco", 6.0, "V, GF"),
+            ("Burritos", "Chicken burrito", 16.0, ""),
+            ("Burritos", "Veggie burrito", 15.0, "V"),
+            ("Sides", "Chips and guacamole", 9.0, "V, GF"),
+            ("Drinks", "Horchata", 5.5, "V"),
+        ]
+        for section, name, price, dietary in menu2:
+            s.add(MenuItem(business_id=biz2.id, section=section, name=name,
+                           price=price, dietary=dietary))
 
         s.commit()
         print("seeded: luigis-carlton (+61370000001), tacos-el-rey (+61370000002)")

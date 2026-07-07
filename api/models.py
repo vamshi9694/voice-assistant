@@ -124,6 +124,47 @@ class KBEntry(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
 
+class MenuItem(SQLModel, table=True):
+    """The tenant's live menu — the ONLY source of truth for what exists.
+    The agent must never invent items; orders are validated against this
+    table server-side."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    business_id: int = Field(index=True, foreign_key="business.id")
+    section: str = "Mains"                               # "Starters", "Pasta", "Drinks"
+    name: str
+    description: str = ""
+    price: float = 0.0
+    dietary: str = ""                                    # "GF, V", free-form tags
+    available: bool = True                               # 86'd items stay but don't sell
+    source: str = "manual"                               # manual | csv | pdf | image | website
+    source_url: str = ""                                 # provenance when ingested
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class OrderStatus(str, Enum):
+    received = "received"
+    ready = "ready"
+    picked_up = "picked_up"
+    cancelled = "cancelled"
+
+
+class Order(SQLModel, table=True):
+    """Phone pickup order. items_json: [{"name","qty","price","notes"}] —
+    validated against MenuItem at create time (no invented items, current
+    prices)."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    business_id: int = Field(index=True, foreign_key="business.id")
+    guest_name: str
+    guest_phone: str
+    items_json: str = "[]"
+    total: float = 0.0
+    pickup_minutes: int = 20
+    notes: str = ""
+    status: OrderStatus = OrderStatus.received
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    call_id: Optional[str] = None
+
+
 class ReservationStatus(str, Enum):
     confirmed = "confirmed"
     cancelled = "cancelled"

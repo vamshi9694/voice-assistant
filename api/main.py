@@ -68,6 +68,10 @@ def get_business(session: Session, slug: str) -> Business:
 from . import tenants as _tenants  # noqa: E402
 _tenants.wire(app, db)
 
+# Menu + phone orders (api/menu.py)
+from . import menu as _menu  # noqa: E402
+_menu.wire(app, db, get_business, require_callback_phone)
+
 
 # ======================= agent-facing (tool backends) =======================
 
@@ -81,8 +85,18 @@ def agent_context(slug: str, session: Session = Depends(db)):
     periods = session.exec(
         select(ServicePeriod).where(ServicePeriod.business_id == biz.id)
     ).all()
+    from .models import MenuItem
+    menu_rows = session.exec(
+        select(MenuItem).where(MenuItem.business_id == biz.id, MenuItem.available == True)  # noqa: E712
+    ).all()
+    menu: dict[str, list] = {}
+    for m in menu_rows:
+        menu.setdefault(m.section, []).append(
+            {"name": m.name, "price": m.price, "description": m.description, "dietary": m.dietary}
+        )
     return {
         "business": biz.model_dump(exclude={"id"}),
+        "menu": menu,
         "languages": {
             "default": biz.default_language,
             "enabled": biz.enabled_langs(),

@@ -24,6 +24,37 @@ LANG_RULES = {
 }
 
 
+def _menu_block(ctx: dict) -> str:
+    """Compact menu injection: '  Name — $12.50 (GF) - desc' grouped by section."""
+    menu = ctx.get("menu") or {}
+    if not menu:
+        return "(no menu configured — do NOT name or price any dish; offer to take a message for menu questions)"
+    out = []
+    for section, items in menu.items():
+        out.append(f"{section}:")
+        for i in items:
+            tags = f" ({i['dietary']})" if i.get("dietary") else ""
+            desc = f" — {i['description']}" if i.get("description") else ""
+            out.append(f"  - {i['name']} ${i['price']:.2f}{tags}{desc}")
+    return "\n".join(out)
+
+
+def _order_rules(biz: dict) -> str:
+    if biz.get("orders_enabled"):
+        return (
+            f"5. Phone orders (PICKUP): offer items from the MENU only. Collect items + "
+            f"quantities, then the caller's name and mobile. Read the complete order and "
+            f"total back; only after they confirm, call create_order. Quote pickup in about "
+            f"{biz.get('order_pickup_minutes', 20)} minutes once the tool succeeds. "
+            f"Policy: {biz.get('order_policy_notes') or 'pickup only, pay in store'}."
+        )
+    return (
+        "5. Phone orders: NOT accepted here"
+        + (f" ({biz.get('order_policy_notes')})" if biz.get("order_policy_notes") else "")
+        + ". Politely decline and offer to take a message or help with a reservation instead."
+    )
+
+
 def build_system_prompt(ctx: dict, now: datetime, language: str = "en") -> str:
     biz = ctx["business"]
     lang_rule = LANG_RULES.get(language, LANG_RULES["en"])
@@ -32,6 +63,10 @@ def build_system_prompt(ctx: dict, now: datetime, language: str = "en") -> str:
         f"- {DAYS[h['day']]} ({h['name']}): opens {h['opens']}, last seating {h['last_seating']}, closes {h['closes']}"
         for h in sorted(ctx["hours"], key=lambda x: (x["day"], x["opens"]))
     ) or "- (no hours configured)"
+    menu_lines = _menu_block(ctx)
+    order_rules = _order_rules(biz)
+    reservation_notes = biz.get("reservation_notes") or ""
+    escalation = biz.get("escalation_rules") or ""
 
     return f"""You are the phone receptionist for {biz['name']}, {biz['address']}. \
 You're a warm, friendly human-sounding host answering a live phone call — think of \
@@ -85,12 +120,26 @@ take_message. Mark urgency "urgent" for complaints, lost property, or anything t
 caller says is time-sensitive.
 4. If the caller is frustrated, asks for a human, or raises complaints, private events, \
 or catering: take an URGENT message with full details (these are high-value).
+{order_rules}
+
+SAFETY RULES (never break these):
+- NEVER invent, rename, or price menu items — only what's in MENU below exists.
+- NEVER say a reservation is booked unless create_reservation returned created=true.
+- NEVER say an order is confirmed unless create_order returned created=true.
+- If a tool fails or errors, say there's a system hiccup and take a message instead.
+- Reservations, orders, and messages all need a valid callback number (about 10 \
+digits) — confirm it digit by digit before calling the tool.
+{f"- Escalation: {escalation}" if escalation else ""}
+
+MENU:
+{menu_lines}
 
 BUSINESS KNOWLEDGE:
 {kb_lines}
 
 OPENING HOURS:
 {hours_lines}
+{f"Reservation policy: {reservation_notes}" if reservation_notes else ""}
 
 Style notes from the owner: {biz.get('persona_notes') or 'friendly and professional'}.
 
