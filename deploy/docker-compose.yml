@@ -1,0 +1,45 @@
+# VPS deploy: the receptionist behind Caddy (auto-TLS for Twilio's wss://).
+#   app   — your container (control plane + Twilio agent), internal :7860
+#   caddy — reverse proxy on :443, gets a free Let's Encrypt cert for PUBLIC_HOST
+#
+# PUBLIC_HOST is written to deploy/.env by setup-vps.sh (e.g. 1.2.3.4.sslip.io).
+# App secrets (API keys) come from the repo-root ../.env.
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    env_file:
+      - ../.env            # DEEPGRAM/OPENAI/CARTESIA/TWILIO keys, LANGUAGE, FILLER, tokens
+    environment:           # pinned infra settings (override anything in ../.env)
+      STACK: hosted
+      SMART_TURN: "off"
+      DATABASE_URL: sqlite:////data/receptionist.db
+      CONTROL_PLANE_URL: http://127.0.0.1:8080
+      PORT: "7860"
+      PUBLIC_HOST: "${PUBLIC_HOST}"
+    expose:
+      - "7860"
+    volumes:
+      - db-data:/data
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      PUBLIC_HOST: "${PUBLIC_HOST}"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - app
+
+volumes:
+  db-data:
+  caddy-data:
+  caddy-config:

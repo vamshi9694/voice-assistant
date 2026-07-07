@@ -1,0 +1,5 @@
+# Caddy auto-provisions a free Let's Encrypt TLS cert for PUBLIC_HOST and
+# reverse-proxies everything (including the /ws WebSocket) to the app.
+{$PUBLIC_HOST} {
+	reverse_proxy app:7860
+}
