@@ -183,17 +183,24 @@ async def build_call_task(transport, slug: str, call_id: str | None = None) -> P
 
     stt, llm, tts = build_services()
 
-    # Register tenant-scoped tool handlers
-    handlers = make_handlers(slug, call_id)
-    for name, fn in handlers.items():
-        if not name.startswith("_"):
-            llm.register_function(name, fn)
+    # FLOWS=on runs the booking as a state machine (agent/flow.py); the flow
+    # registers per-node functions itself. Otherwise use the single big prompt
+    # + globally-registered tools (the default, battle-tested path).
+    FLOWS = os.getenv("FLOWS", "off").lower() != "off"
+    handlers = make_handlers(slug, call_id)  # _report_call used at disconnect either way
 
-    system_prompt = build_system_prompt(ctx, datetime.now(), language=LANGUAGE)
-    context = LLMContext(
-        messages=[{"role": "system", "content": system_prompt}],
-        tools=tools,
-    )
+    if FLOWS:
+        logger.info("FLOWS ON — booking runs as a state machine")
+        context = LLMContext(messages=[])   # flow manages system prompt + functions per node
+    else:
+        for name, fn in handlers.items():
+            if not name.startswith("_"):
+                llm.register_function(name, fn)
+        system_prompt = build_system_prompt(ctx, datetime.now(), language=LANGUAGE)
+        context = LLMContext(
+            messages=[{"role": "system", "content": system_prompt}],
+            tools=tools,
+        )
     # VAD (acoustic) + optional Smart Turn v3 (semantic) live on the user
     # aggregator in Pipecat 1.5. The VAD analyzer here is what actually emits
     # VADUserStartedSpeakingFrame/VADUserStoppedSpeakingFrame — without it,
@@ -268,10 +275,24 @@ async def build_call_task(transport, slug: str, call_id: str | None = None) -> P
     }
     greeting = biz.get("greeting") or _greetings.get(LANGUAGE, _greetings["en"])
 
+    # State-machine mode: build the FlowManager now, initialize it on connect
+    # (after the greeting) so the flow drives the conversation from turn one.
+    flow_manager = None
+    if FLOWS:
+        from pipecat.flows import FlowManager
+        flow_manager = FlowManager(
+            llm=llm, context_aggregator=aggregators, worker=task, transport=transport,
+        )
+
     @transport.event_handler("on_client_connected")
     async def _greet(transport, client):
         logger.info(f"[{call_id}] caller connected -> greeting (direct TTS)")
         await task.queue_frames([TTSSpeakFrame(greeting)])
+        if flow_manager is not None:
+            from .flow import build_initial_node
+            await flow_manager.initialize(
+                build_initial_node(ctx, slug, call_id, LANGUAGE, datetime.now())
+            )
 
     @transport.event_handler("on_client_disconnected")
     async def _bye(transport, client):
