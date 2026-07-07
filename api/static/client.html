@@ -1,0 +1,330 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Restaurant Dashboard</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--ink:#1a202c;--mut:#64748b;--acc:#0f766e;--bad:#b91c1c;--bd:#e2e8f0}
+*{box-sizing:border-box}body{margin:0;font:14px/1.45 -apple-system,system-ui,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--ink)}
+header{display:flex;align-items:center;gap:12px;padding:10px 18px;background:var(--card);border-bottom:1px solid var(--bd)}
+header h1{font-size:16px;margin:0}header .sp{flex:1}
+nav{display:flex;gap:4px;padding:8px 14px;background:var(--card);border-bottom:1px solid var(--bd);flex-wrap:wrap}
+nav button{border:0;background:none;padding:7px 12px;border-radius:8px;cursor:pointer;font-weight:600;color:var(--mut)}
+nav button.on{background:#e6f4f2;color:var(--acc)}
+main{padding:18px;max-width:1100px;margin:0 auto}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:16px;margin-bottom:14px}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+.stat{text-align:center}.stat b{display:block;font-size:26px}.stat span{color:var(--mut);font-size:12px}
+h2{font-size:15px;margin:0 0 10px}
+label{display:block;font-size:12px;color:var(--mut);margin:8px 0 2px}
+input,select,textarea{width:100%;padding:7px 9px;border:1px solid var(--bd);border-radius:8px;font:inherit;background:#fff}
+textarea{min-height:60px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:0 16px}.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:0 16px}
+button.btn{background:var(--acc);color:#fff;border:0;padding:8px 14px;border-radius:8px;font-weight:600;cursor:pointer;margin-top:10px}
+button.sm{padding:4px 9px;font-size:12px;margin:0}
+button.ghost{background:#eef2f7;color:var(--ink)}button.danger{background:var(--bad)}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--bd);vertical-align:top}
+th{color:var(--mut);font-size:11px;text-transform:uppercase;letter-spacing:.04em}
+.pill{display:inline-block;padding:2px 8px;border-radius:99px;font-size:11px;font-weight:700;background:#eef2f7}
+.pill.ok{background:#dcfce7;color:#166534}.pill.warn{background:#fef3c7;color:#92400e}.pill.bad{background:#fee2e2;color:#991b1b}
+#login{max-width:340px;margin:10vh auto}
+.msg{font-size:12px;margin-top:8px;color:var(--acc)}.msg.err{color:var(--bad)}
+details{margin-top:6px}pre{white-space:pre-wrap;font-size:12px;background:#f8fafc;padding:8px;border-radius:8px}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.chk{display:flex;gap:6px;align-items:center;font-size:13px;color:var(--ink);margin-top:8px}
+.chk input{width:auto}
+</style>
+</head>
+<body>
+<div id="login" class="card" style="display:none">
+  <h2>Restaurant login</h2>
+  <label>Email</label><input id="li_email" autocomplete="username">
+  <label>Password</label><input id="li_pw" type="password" autocomplete="current-password">
+  <button class="btn" onclick="doLogin()">Sign in</button>
+  <div id="li_msg" class="msg err"></div>
+</div>
+
+<div id="shell" style="display:none">
+<header><h1 id="bizname">Dashboard</h1><span class="sp"></span><span id="who" style="color:var(--mut);font-size:12px"></span><button class="btn sm ghost" onclick="logout()">Log out</button></header>
+<nav id="tabs"></nav>
+<main id="main"></main>
+</div>
+
+<script>
+const TABS=["Overview","Settings","Hours","Menu","Website","Knowledge","Activity"];
+let SLUG=null, TOKEN=localStorage.getItem("tok")||"", cur="Overview";
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+async function api(path,opts={}){
+  opts.headers=Object.assign({"Authorization":"Bearer "+TOKEN},opts.headers||{});
+  if(opts.body&&!(opts.body instanceof FormData)){opts.headers["Content-Type"]="application/json";opts.body=JSON.stringify(opts.body);}
+  const r=await fetch(path,opts); const d=await r.json().catch(()=>({}));
+  if(r.status===401){logout();throw new Error("login required");}
+  if(!r.ok)throw new Error(d.detail?JSON.stringify(d.detail):r.status);
+  return d;
+}
+function logout(){localStorage.removeItem("tok");localStorage.removeItem("slug");location.reload();}
+async function doLogin(){
+  try{
+    const d=await (await fetch("/auth/login",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({email:$("li_email").value,password:$("li_pw").value})})).json();
+    if(!d.token){$("li_msg").textContent=d.detail||"login failed";return;}
+    if(!d.slug){$("li_msg").textContent="This is the restaurant dashboard — platform admins use /admin-ui";return;}
+    TOKEN=d.token;localStorage.setItem("tok",d.token);localStorage.setItem("slug",d.slug);boot();
+  }catch(e){$("li_msg").textContent=e.message;}
+}
+async function boot(){
+  SLUG=localStorage.getItem("slug");
+  if(!TOKEN||!SLUG){$("login").style.display="block";return;}
+  $("login").style.display="none";$("shell").style.display="block";
+  $("tabs").innerHTML=TABS.map(t=>`<button id="tab_${t}" onclick="go('${t}')">${t}</button>`).join("");
+  try{const b=await api(`/owner/${SLUG}/business`);$("bizname").textContent=b.name;$("who").textContent=SLUG;}catch(e){}
+  go(cur);
+}
+function go(t){cur=t;TABS.forEach(x=>$("tab_"+x)?.classList.toggle("on",x===t));render[t]();}
+const M=$("main")||null;
+function setMain(html){document.getElementById("main").innerHTML=html;}
+function msg(id,text,err){const el=$(id);el.textContent=text;el.className="msg"+(err?" err":"");setTimeout(()=>el.textContent="",4000);}
+
+const render={};
+
+/* ---------------- Overview ---------------- */
+render["Overview"]=async()=>{
+  const o=await api(`/owner/${SLUG}/overview`);
+  setMain(`<div class="card"><div class="cards">
+    <div class="stat"><b>${o.calls_24h}</b><span>calls (24h)</span></div>
+    <div class="stat"><b>${o.bookings_today}</b><span>bookings today</span></div>
+    <div class="stat"><b>${o.upcoming_bookings}</b><span>upcoming bookings</span></div>
+    <div class="stat"><b>${o.messages_total}</b><span>messages</span></div>
+    <div class="stat"><b>${o.messages_urgent}</b><span>urgent ⚠️</span></div>
+  </div></div>`);
+};
+
+/* ---------------- Settings ---------------- */
+render["Settings"]=async()=>{
+  const b=await api(`/owner/${SLUG}/business`);
+  const langs=JSON.parse(b.enabled_languages||'["en"]');
+  setMain(`
+  <div class="card"><h2>Business</h2><div class="grid2">
+    <div><label>Name</label><input id="f_name" value="${esc(b.name)}"></div>
+    <div><label>Timezone</label><input id="f_timezone" value="${esc(b.timezone)}"></div>
+    <div><label>Address</label><input id="f_address" value="${esc(b.address)}"></div>
+    <div><label>Website (approved crawl domain)</label><input id="f_website" value="${esc(b.website)}"></div>
+    <div><label>Owner mobile</label><input id="f_owner_mobile" value="${esc(b.owner_mobile)}"></div>
+    <div><label>Transfer line</label><input id="f_phone_forward_to" value="${esc(b.phone_forward_to)}"></div>
+    <div><label>Manager phone (escalations)</label><input id="f_manager_phone" value="${esc(b.manager_phone)}"></div>
+    <div><label>Manager email</label><input id="f_manager_email" value="${esc(b.manager_email)}"></div>
+  </div></div>
+  <div class="card"><h2>Reservations</h2><div class="grid3">
+    <div><label>Covers per slot</label><input id="f_covers_per_slot" type="number" value="${b.covers_per_slot}"></div>
+    <div><label>Large-party threshold (max auto-book)</label><input id="f_max_party_size" type="number" value="${b.max_party_size}"></div>
+    <div><label>Slot minutes</label><input id="f_slot_minutes" type="number" value="${b.slot_minutes}"></div>
+  </div><label>Reservation policy notes (spoken)</label><textarea id="f_reservation_notes">${esc(b.reservation_notes)}</textarea></div>
+  <div class="card"><h2>Phone orders</h2>
+    <div class="chk"><input id="f_orders_enabled" type="checkbox" ${b.orders_enabled?"checked":""}><span>Accept phone orders (pickup)</span></div>
+    <div class="grid2">
+    <div><label>Pickup lead time (min)</label><input id="f_order_pickup_minutes" type="number" value="${b.order_pickup_minutes}"></div>
+    <div><label>Order policy notes</label><input id="f_order_policy_notes" value="${esc(b.order_policy_notes)}"></div>
+  </div></div>
+  <div class="card"><h2>Languages &amp; voice</h2>
+    <div class="grid2">
+    <div><label>Default language</label><select id="f_default_language">
+      <option value="en" ${b.default_language==="en"?"selected":""}>English</option>
+      <option value="es" ${b.default_language==="es"?"selected":""}>Spanish</option></select></div>
+    <div><label>Voice map (JSON {lang: voice_id})</label><input id="f_voice_map" value='${esc(b.voice_map)}'></div>
+    </div>
+    <div class="chk"><input id="l_en" type="checkbox" ${langs.includes("en")?"checked":""}><span>English enabled</span></div>
+    <div class="chk"><input id="l_es" type="checkbox" ${langs.includes("es")?"checked":""}><span>Spanish enabled</span></div>
+    <div class="chk"><input id="f_auto_detect_language" type="checkbox" ${b.auto_detect_language?"checked":""}><span>Auto-detect caller language</span></div>
+    <label>Fallback line (unsupported language)</label><textarea id="f_language_fallback">${esc(b.language_fallback)}</textarea>
+  </div>
+  <div class="card"><h2>Voice &amp; tone / escalation</h2>
+    <label>Greeting override</label><input id="f_greeting" value="${esc(b.greeting)}">
+    <label>Persona / tone notes</label><textarea id="f_persona_notes">${esc(b.persona_notes)}</textarea>
+    <label>Escalation rules</label><textarea id="f_escalation_rules">${esc(b.escalation_rules)}</textarea>
+    <button class="btn" onclick="saveSettings()">Save all settings</button><div id="s_msg" class="msg"></div>
+  </div>`);
+};
+async function saveSettings(){
+  const v=id=>$(id).value, n=id=>parseInt($(id).value||0), c=id=>$(id).checked;
+  const enabled=[]; if(c("l_en"))enabled.push("en"); if(c("l_es"))enabled.push("es");
+  try{
+    await api(`/owner/${SLUG}/business`,{method:"PATCH",body:{
+      name:v("f_name"),timezone:v("f_timezone"),address:v("f_address"),website:v("f_website"),
+      owner_mobile:v("f_owner_mobile"),phone_forward_to:v("f_phone_forward_to"),
+      manager_phone:v("f_manager_phone"),manager_email:v("f_manager_email"),
+      covers_per_slot:n("f_covers_per_slot"),max_party_size:n("f_max_party_size"),slot_minutes:n("f_slot_minutes"),
+      reservation_notes:v("f_reservation_notes"),
+      orders_enabled:c("f_orders_enabled"),order_pickup_minutes:n("f_order_pickup_minutes"),order_policy_notes:v("f_order_policy_notes"),
+      default_language:v("f_default_language"),enabled_languages:JSON.stringify(enabled.length?enabled:["en"]),
+      auto_detect_language:c("f_auto_detect_language"),voice_map:v("f_voice_map"),language_fallback:v("f_language_fallback"),
+      greeting:v("f_greeting"),persona_notes:v("f_persona_notes"),escalation_rules:v("f_escalation_rules"),
+    }});msg("s_msg","Saved ✓");
+  }catch(e){msg("s_msg",e.message,1);}
+}
+
+/* ---------------- Hours ---------------- */
+const DAYS=["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
+render["Hours"]=async()=>{
+  const hrs=await api(`/owner/${SLUG}/hours`); const hols=await api(`/owner/${SLUG}/holidays`);
+  window._periods=hrs.map(h=>({day_of_week:h.day_of_week,name:h.name,opens:h.opens.slice(0,5),last_seating:h.last_seating.slice(0,5),closes:h.closes.slice(0,5)}));
+  setMain(`<div class="card"><h2>Weekly service periods</h2><table id="ptable"></table>
+    <button class="btn ghost sm" style="margin-top:10px" onclick="addPeriod()">+ add period</button>
+    <button class="btn sm" style="margin-left:8px" onclick="saveHours()">Save schedule</button><div id="h_msg" class="msg"></div></div>
+  <div class="card"><h2>Holiday overrides</h2>
+    <div class="row"><input id="hol_date" type="date" style="width:170px"><input id="hol_note" placeholder="note e.g. Closed Christmas" style="width:260px">
+    <select id="hol_closed" style="width:110px"><option value="1">closed</option><option value="0">open</option></select>
+    <button class="btn sm" onclick="addHoliday()">Add</button></div>
+    <table style="margin-top:10px"><tr><th>date</th><th>status</th><th>note</th><th></th></tr>
+    ${hols.map(h=>`<tr><td>${h.on_date}</td><td>${h.closed?'<span class="pill bad">closed</span>':'<span class="pill ok">open</span>'}</td><td>${esc(h.note)}</td>
+      <td><button class="btn sm danger" onclick="delHoliday(${h.id})">delete</button></td></tr>`).join("")}</table></div>`);
+  drawPeriods();
+};
+function drawPeriods(){
+  $("ptable").innerHTML=`<tr><th>day</th><th>service</th><th>opens</th><th>last seating</th><th>closes</th><th></th></tr>`+
+  window._periods.map((p,i)=>`<tr>
+    <td><select onchange="_periods[${i}].day_of_week=+this.value">${DAYS.map((d,j)=>`<option value="${j}" ${j===p.day_of_week?"selected":""}>${d}</option>`).join("")}</select></td>
+    <td><input value="${esc(p.name)}" onchange="_periods[${i}].name=this.value"></td>
+    <td><input type="time" value="${p.opens}" onchange="_periods[${i}].opens=this.value"></td>
+    <td><input type="time" value="${p.last_seating}" onchange="_periods[${i}].last_seating=this.value"></td>
+    <td><input type="time" value="${p.closes}" onchange="_periods[${i}].closes=this.value"></td>
+    <td><button class="btn sm danger" onclick="_periods.splice(${i},1);drawPeriods()">✕</button></td></tr>`).join("");
+}
+function addPeriod(){window._periods.push({day_of_week:0,name:"dinner",opens:"17:30",last_seating:"21:00",closes:"22:30"});drawPeriods();}
+async function saveHours(){try{await api(`/owner/${SLUG}/hours/replace`,{method:"POST",body:window._periods});msg("h_msg","Saved ✓");}catch(e){msg("h_msg",e.message,1);}}
+async function addHoliday(){await api(`/owner/${SLUG}/holidays`,{method:"POST",body:{on_date:$("hol_date").value,closed:$("hol_closed").value==="1",note:$("hol_note").value}});go("Hours");}
+async function delHoliday(id){await api(`/owner/${SLUG}/holidays/${id}/delete`,{method:"POST"});go("Hours");}
+
+/* ---------------- Menu ---------------- */
+render["Menu"]=async()=>{
+  const items=await api(`/owner/${SLUG}/menu`); const drafts=await api(`/owner/${SLUG}/menu/drafts`);
+  setMain(`<div class="card"><h2>Menu items (${items.length})</h2>
+    <table><tr><th>section</th><th>name</th><th>description</th><th>$</th><th>dietary</th><th>avail</th><th>source</th><th></th></tr>
+    ${items.map(m=>`<tr>
+      <td><input value="${esc(m.section)}" id="ms_${m.id}" style="width:90px"></td>
+      <td><input value="${esc(m.name)}" id="mn_${m.id}" style="width:150px"></td>
+      <td><input value="${esc(m.description)}" id="md_${m.id}"></td>
+      <td><input value="${m.price}" id="mp_${m.id}" style="width:60px"></td>
+      <td><input value="${esc(m.dietary)}" id="mt_${m.id}" style="width:60px"></td>
+      <td><input type="checkbox" id="ma_${m.id}" ${m.available?"checked":""} style="width:auto"></td>
+      <td style="font-size:11px;color:var(--mut)">${m.source}</td>
+      <td class="row"><button class="btn sm" onclick="saveItem(${m.id})">save</button>
+      <button class="btn sm danger" onclick="delItem(${m.id})">✕</button></td></tr>`).join("")}
+    <tr><td><input id="ms_new" placeholder="section" style="width:90px"></td><td><input id="mn_new" placeholder="name" style="width:150px"></td>
+      <td><input id="md_new" placeholder="description"></td><td><input id="mp_new" placeholder="0.00" style="width:60px"></td>
+      <td><input id="mt_new" placeholder="GF,V" style="width:60px"></td><td></td><td></td>
+      <td><button class="btn sm" onclick="saveItem(null)">add</button></td></tr></table><div id="m_msg" class="msg"></div></div>
+  <div class="card"><h2>Import a menu</h2>
+    <div class="row"><b style="font-size:12px">CSV</b><input type="file" id="up_csv" accept=".csv" style="width:auto"><button class="btn sm" onclick="upload('csv')">Upload</button></div>
+    <div class="row" style="margin-top:6px"><b style="font-size:12px">PDF</b><input type="file" id="up_pdf" accept=".pdf" style="width:auto"><button class="btn sm" onclick="upload('pdf')">Upload</button></div>
+    <div class="row" style="margin-top:6px"><b style="font-size:12px">Photo</b><input type="file" id="up_image" accept="image/*" style="width:auto"><button class="btn sm" onclick="upload('image')">Upload</button></div>
+    <div class="row" style="margin-top:6px"><b style="font-size:12px">URL</b><input id="up_url" placeholder="https://yoursite.com/menu (approved domain only)" style="width:320px"><button class="btn sm" onclick="ingestUrl()">Fetch</button></div>
+    <div id="u_msg" class="msg"></div></div>
+  <div class="card"><h2>Pending menu drafts</h2>${drafts.filter(d=>d.status==="pending").map(d=>`
+    <div style="border:1px solid var(--bd);border-radius:10px;padding:10px;margin-bottom:8px">
+      <div class="row"><span class="pill">${d.source}</span><span style="font-size:12px;color:var(--mut)">${esc(d.source_url)} · ${d.items.length} items · ${esc(d.extraction_notes)}</span></div>
+      <details><summary>items</summary><pre>${esc(d.items.map(i=>`${i.section} | ${i.name} | $${i.price} ${i.dietary}`).join("\n"))}</pre></details>
+      <div class="row"><button class="btn sm" onclick="approveDraft(${d.id},'merge')">Approve (merge)</button>
+      <button class="btn sm ghost" onclick="approveDraft(${d.id},'replace')">Approve (replace menu)</button>
+      <button class="btn sm danger" onclick="rejectDraft(${d.id})">Reject</button></div></div>`).join("")||'<span style="color:var(--mut)">none</span>'}</div>`);
+};
+async function saveItem(id){
+  const s=id??"new";
+  try{await api(`/owner/${SLUG}/menu`,{method:"POST",body:{id:id||undefined,section:$( `ms_${s}`).value,name:$(`mn_${s}`).value,
+    description:$(`md_${s}`).value,price:parseFloat($(`mp_${s}`).value||0),dietary:$(`mt_${s}`).value,
+    available:id?$(`ma_${id}`).checked:true}});go("Menu");}catch(e){msg("m_msg",e.message,1);}
+}
+async function delItem(id){await api(`/owner/${SLUG}/menu/${id}/delete`,{method:"POST"});go("Menu");}
+async function upload(kind){
+  const f=$(`up_${kind}`).files[0]; if(!f){msg("u_msg","pick a file",1);return;}
+  const fd=new FormData();fd.append("file",f);
+  try{const d=await api(`/owner/${SLUG}/menu/ingest/${kind}`,{method:"POST",body:fd});msg("u_msg",`${d.items_found} items found — review the draft below`);go("Menu");}
+  catch(e){msg("u_msg",e.message,1);}
+}
+async function ingestUrl(){try{const d=await api(`/owner/${SLUG}/menu/ingest/url`,{method:"POST",body:{url:$("up_url").value}});msg("u_msg",`${d.items_found} items found — review the draft below`);go("Menu");}catch(e){msg("u_msg",e.message,1);}}
+async function approveDraft(id,mode){await api(`/owner/${SLUG}/menu/drafts/${id}/approve`,{method:"POST",body:{mode}});go("Menu");}
+async function rejectDraft(id){await api(`/owner/${SLUG}/menu/drafts/${id}/reject`,{method:"POST"});go("Menu");}
+
+/* ---------------- Website ---------------- */
+render["Website"]=async()=>{
+  const b=await api(`/owner/${SLUG}/business`); const drafts=await api(`/owner/${SLUG}/crawl/drafts`);
+  setMain(`<div class="card"><h2>Website crawl</h2>
+    <p style="color:var(--mut);font-size:13px">Approved domain: <b>${esc(b.website)||"(set the website in Settings first)"}</b>. The crawler only reads this domain, honors robots.txt, and nothing publishes without your approval.</p>
+    <button class="btn" onclick="runCrawl()">Crawl site now</button><div id="c_msg" class="msg"></div></div>
+  ${drafts.map(d=>`<div class="card"><div class="row"><span class="pill ${d.status==="pending"?"warn":d.status==="approved"?"ok":"bad"}">${d.status}</span>
+    <span style="font-size:12px;color:var(--mut)">${esc(d.start_url)} · ${d.pages_crawled} pages · ${new Date(d.created_at).toLocaleString()}</span></div>
+    ${d.menu_urls.length?`<p style="font-size:12px">Menu pages found: ${d.menu_urls.map(u=>esc(u)).join(", ")} — import them from the Menu tab.</p>`:""}
+    ${d.status==="pending"?`
+    <table><tr><th></th><th>type</th><th>topic</th><th>value</th><th>source</th></tr>
+    ${d.facts.map((f,i)=>`<tr><td><input type="checkbox" checked id="cf_${d.id}_${i}" style="width:auto"></td>
+      <td>${f.type}</td><td>${esc(f.topic)}</td><td>${esc(f.value)}</td><td style="font-size:11px">${esc(f.source_url)}</td></tr>`).join("")}</table>
+    <div class="row" style="margin-top:8px"><button class="btn sm" onclick='approveCrawl(${d.id},${JSON.stringify(d.facts).replace(/'/g,"&#39;")})'>Approve checked</button>
+    <button class="btn sm danger" onclick="rejectCrawl(${d.id})">Reject</button></div>`
+    :`<details><summary>facts</summary><pre>${esc(d.facts.map(f=>`${f.type}: ${f.topic} = ${f.value}`).join("\n"))}</pre></details>`}</div>`).join("")}`);
+};
+async function runCrawl(){try{const d=await api(`/owner/${SLUG}/crawl`,{method:"POST",body:{}});msg("c_msg",`${d.pages_crawled} pages, ${d.facts_found} facts — review below`);go("Website");}catch(e){msg("c_msg",e.message,1);}}
+async function approveCrawl(id,facts){
+  const chosen=facts.filter((f,i)=>$(`cf_${id}_${i}`).checked);
+  await api(`/owner/${SLUG}/crawl/drafts/${id}/approve`,{method:"POST",body:{facts:chosen}});go("Website");
+}
+async function rejectCrawl(id){await api(`/owner/${SLUG}/crawl/drafts/${id}/reject`,{method:"POST"});go("Website");}
+
+/* ---------------- Knowledge ---------------- */
+render["Knowledge"]=async()=>{
+  const docs=await api(`/owner/${SLUG}/kb/documents`); const faqs=await api(`/owner/${SLUG}/kb`);
+  setMain(`<div class="card"><h2>FAQs (spoken knowledge)</h2>
+    <table><tr><th>topic</th><th>answer</th><th>source</th><th></th></tr>
+    ${faqs.map(k=>`<tr><td>${esc(k.topic)}</td><td>${esc(k.answer)}</td><td style="font-size:11px">${esc(k.source_url||"manual")}</td>
+      <td><button class="btn sm danger" onclick="delFaq('${esc(k.topic)}')">✕</button></td></tr>`).join("")}</table>
+    <div class="row" style="margin-top:8px"><input id="faq_t" placeholder="topic" style="width:140px"><input id="faq_a" placeholder="answer" style="width:380px">
+    <button class="btn sm" onclick="addFaq()">Add / update</button></div></div>
+  <div class="card"><h2>Documents &amp; notes (searchable by the assistant)</h2>
+    <div class="row"><input id="note_t" placeholder="note title" style="width:160px"><input id="note_c" placeholder="note content" style="width:340px"><button class="btn sm" onclick="addNote()">Add note</button></div>
+    <div class="row" style="margin-top:6px"><input type="file" id="kb_file" accept=".txt,.md,.pdf" style="width:auto"><button class="btn sm" onclick="uploadDoc()">Upload document</button>
+    <button class="btn sm ghost" onclick="syncKb()">Sync FAQs + menu into search</button></div><div id="k_msg" class="msg"></div>
+    <table style="margin-top:10px"><tr><th>title</th><th>source</th><th>size</th><th></th></tr>
+    ${docs.map(d=>`<tr><td>${esc(d.title)}</td><td>${d.source}</td><td>${d.chars} chars</td>
+      <td><button class="btn sm danger" onclick="delDoc(${d.id})">✕</button></td></tr>`).join("")}</table></div>
+  <div class="card"><h2>Test search (what the assistant sees)</h2>
+    <div class="row"><input id="q" placeholder="e.g. do you have gluten free pasta?" style="width:380px"><button class="btn sm" onclick="testSearch()">Search</button></div>
+    <div id="q_out"></div></div>`);
+};
+async function addFaq(){await api(`/owner/${SLUG}/kb`,{method:"POST",body:{topic:$("faq_t").value,answer:$("faq_a").value}});go("Knowledge");}
+async function delFaq(t){await api(`/owner/${SLUG}/kb/delete`,{method:"POST",body:{topic:t}});go("Knowledge");}
+async function addNote(){try{await api(`/owner/${SLUG}/kb/notes`,{method:"POST",body:{title:$("note_t").value,content:$("note_c").value}});go("Knowledge");}catch(e){msg("k_msg",e.message,1);}}
+async function uploadDoc(){const f=$("kb_file").files[0];if(!f)return msg("k_msg","pick a file",1);const fd=new FormData();fd.append("file",f);
+  try{await api(`/owner/${SLUG}/kb/upload`,{method:"POST",body:fd});go("Knowledge");}catch(e){msg("k_msg",e.message,1);}}
+async function delDoc(id){await api(`/owner/${SLUG}/kb/documents/${id}/delete`,{method:"POST"});go("Knowledge");}
+async function syncKb(){await api(`/owner/${SLUG}/kb/sync`,{method:"POST"});msg("k_msg","Synced ✓");go("Knowledge");}
+async function testSearch(){const d=await api(`/agent/${SLUG}/kb/search`,{method:"POST",body:{query:$("q").value}});
+  $("q_out").innerHTML=d.results.map(r=>`<pre><b>${esc(r.title)}</b> (${r.score}) — ${esc(r.text)}</pre>`).join("")||"<p style='color:var(--mut)'>no results</p>";}
+
+/* ---------------- Activity ---------------- */
+render["Activity"]=async()=>{
+  const [res,orders,msgs,calls]=await Promise.all([
+    api(`/owner/${SLUG}/reservations`),api(`/owner/${SLUG}/orders`),
+    api(`/owner/${SLUG}/messages`),api(`/owner/${SLUG}/calls`)]);
+  setMain(`<div class="card"><h2>Reservations</h2><table><tr><th>date</th><th>time</th><th>party</th><th>name</th><th>phone</th><th>status</th><th></th></tr>
+    ${res.map(r=>`<tr><td>${r.on_date}</td><td>${r.at_time.slice(0,5)}</td><td>${r.party_size}</td><td>${esc(r.guest_name)}</td><td>${esc(r.guest_phone)}</td>
+      <td><span class="pill ${r.status==="confirmed"?"ok":"bad"}">${r.status}</span></td>
+      <td>${r.status==="confirmed"?`<button class="btn sm danger" onclick="cancelRes(${r.id})">cancel</button>`:""}</td></tr>`).join("")}</table></div>
+  <div class="card"><h2>Orders</h2><table><tr><th>#</th><th>items</th><th>total</th><th>guest</th><th>status</th><th></th></tr>
+    ${orders.map(o=>`<tr><td>${o.id}</td><td>${o.items.map(i=>`${i.qty}x ${esc(i.name)}`).join(", ")}</td><td>$${o.total.toFixed(2)}</td>
+      <td>${esc(o.guest_name)} ${esc(o.guest_phone)}</td><td><span class="pill">${o.status}</span></td>
+      <td class="row">${["ready","picked_up","cancelled"].map(s=>`<button class="btn sm ghost" onclick="orderStatus(${o.id},'${s}')">${s}</button>`).join("")}</td></tr>`).join("")}</table></div>
+  <div class="card"><h2>Messages</h2><table><tr><th>when</th><th>from</th><th>reason</th><th>urgency</th></tr>
+    ${msgs.map(m=>`<tr><td>${new Date(m.created_at).toLocaleString()}</td><td>${esc(m.caller_name)} ${esc(m.caller_phone)}</td>
+      <td>${esc(m.reason)}</td><td>${m.urgency==="urgent"?'<span class="pill bad">urgent</span>':'<span class="pill">normal</span>'}</td></tr>`).join("")}</table></div>
+  <div class="card"><h2>Calls</h2>${calls.map(c=>`
+    <details><summary>${new Date(c.started_at).toLocaleString()} · ${esc(c.caller_phone||"unknown")} · ${c.outcome||""} ${c.language?`· ${c.language}`:""} — ${esc(c.summary)}</summary>
+    <pre>${esc(c.transcript||"(no transcript)")}</pre></details>`).join("")}</div>`);
+};
+async function cancelRes(id){await api(`/owner/${SLUG}/reservations/${id}/cancel`,{method:"POST"});go("Activity");}
+async function orderStatus(id,s){await api(`/owner/${SLUG}/orders/${id}/status`,{method:"POST",body:{status:s}});go("Activity");}
+
+boot();
+</script>
+</body>
+</html>

@@ -64,6 +64,10 @@ def get_business(session: Session, slug: str) -> Business:
     return biz
 
 
+# Auth: JWT login + role middleware (api/auth.py)
+from . import auth as _auth  # noqa: E402
+_auth.wire(app, db)
+
 # Tenant routing + admin + business-config routes (api/tenants.py)
 from . import tenants as _tenants  # noqa: E402
 _tenants.wire(app, db)
@@ -83,6 +87,29 @@ _crawler.wire(app, db, get_business)
 # Per-tenant vector knowledge base (api/vectorkb.py)
 from . import vectorkb as _vectorkb  # noqa: E402
 _vectorkb.wire(app, db, get_business)
+
+# ------------------------- dashboards (SPAs) -------------------------
+import pathlib  # noqa: E402
+from fastapi.responses import HTMLResponse, RedirectResponse  # noqa: E402
+
+_STATIC = pathlib.Path(__file__).parent / "static"
+
+
+@app.get("/app", response_class=HTMLResponse)
+def client_dashboard():
+    """Restaurant (tenant) dashboard."""
+    return (_STATIC / "client.html").read_text()
+
+
+@app.get("/admin-ui", response_class=HTMLResponse)
+def admin_dashboard():
+    """Platform-owner dashboard."""
+    return (_STATIC / "admin.html").read_text()
+
+
+@app.get("/", include_in_schema=False)
+def root():
+    return RedirectResponse("/app")
 
 
 # ======================= agent-facing (tool backends) =======================

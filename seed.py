@@ -12,8 +12,11 @@ from datetime import time
 
 from sqlmodel import Session, SQLModel, select
 
+from api.auth import hash_password
 from api.main import engine
-from api.models import Business, KBEntry, MenuItem, PhoneNumber, ServicePeriod
+from api.models import (
+    Business, KBEntry, MenuItem, PhoneNumber, ServicePeriod, User, UserRole,
+)
 
 
 def seed():
@@ -149,8 +152,20 @@ def seed():
             s.add(MenuItem(business_id=biz2.id, section=section, name=name,
                            price=price, dietary=dietary))
 
+        # ------------------------------ users ------------------------------
+        s.add(User(email="admin@platform.local",
+                   password_hash=hash_password(os.getenv("ADMIN_PASSWORD", "admin123")),
+                   role=UserRole.platform_admin))
+        s.add(User(email="owner@luigis.local",
+                   password_hash=hash_password(os.getenv("OWNER_PASSWORD", "owner123")),
+                   role=UserRole.tenant_admin, business_id=biz.id))
+        s.add(User(email="owner@tacos.local",
+                   password_hash=hash_password(os.getenv("OWNER_PASSWORD", "owner123")),
+                   role=UserRole.tenant_admin, business_id=biz2.id))
+
         s.commit()
         print("seeded: luigis-carlton (+61370000001), tacos-el-rey (+61370000002)")
+        print("logins: admin@platform.local/admin123, owner@luigis.local/owner123, owner@tacos.local/owner123")
 
 
 if __name__ == "__main__":

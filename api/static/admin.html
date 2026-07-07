@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Platform Admin</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--ink:#1a202c;--mut:#64748b;--acc:#4338ca;--bad:#b91c1c;--bd:#e2e8f0}
+*{box-sizing:border-box}body{margin:0;font:14px/1.45 -apple-system,system-ui,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--ink)}
+header{display:flex;align-items:center;gap:12px;padding:10px 18px;background:var(--card);border-bottom:1px solid var(--bd)}
+header h1{font-size:16px;margin:0}header .sp{flex:1}
+nav{display:flex;gap:4px;padding:8px 14px;background:var(--card);border-bottom:1px solid var(--bd)}
+nav button{border:0;background:none;padding:7px 12px;border-radius:8px;cursor:pointer;font-weight:600;color:var(--mut)}
+nav button.on{background:#eef2ff;color:var(--acc)}
+main{padding:18px;max-width:1100px;margin:0 auto}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:16px;margin-bottom:14px}
+h2{font-size:15px;margin:0 0 10px}
+label{display:block;font-size:12px;color:var(--mut);margin:8px 0 2px}
+input,select{padding:7px 9px;border:1px solid var(--bd);border-radius:8px;font:inherit;background:#fff}
+button.btn{background:var(--acc);color:#fff;border:0;padding:8px 14px;border-radius:8px;font-weight:600;cursor:pointer}
+button.sm{padding:4px 9px;font-size:12px}button.ghost{background:#eef2f7;color:var(--ink)}button.danger{background:var(--bad)}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--bd)}
+th{color:var(--mut);font-size:11px;text-transform:uppercase}
+.pill{display:inline-block;padding:2px 8px;border-radius:99px;font-size:11px;font-weight:700;background:#eef2f7}
+.pill.ok{background:#dcfce7;color:#166534}.pill.warn{background:#fef3c7;color:#92400e}.pill.bad{background:#fee2e2;color:#991b1b}
+#login{max-width:340px;margin:10vh auto}#login input{width:100%}
+.msg{font-size:12px;margin-top:8px;color:var(--acc)}.msg.err{color:var(--bad)}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px}
+.stat b{font-size:20px}
+</style>
+</head>
+<body>
+<div id="login" class="card" style="display:none">
+  <h2>Platform admin login</h2>
+  <label>Email</label><input id="li_email"><label>Password</label><input id="li_pw" type="password">
+  <button class="btn" style="margin-top:10px" onclick="doLogin()">Sign in</button><div id="li_msg" class="msg err"></div>
+</div>
+
+<div id="shell" style="display:none">
+<header><h1>Platform Admin</h1><span class="sp"></span><button class="btn sm ghost" onclick="logout()">Log out</button></header>
+<nav id="tabs"></nav><main id="main"></main>
+</div>
+
+<script>
+const TABS=["Tenants","Numbers","Users","Health"];
+let TOKEN=localStorage.getItem("atok")||"",cur="Tenants";
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+async function api(path,opts={}){
+  opts.headers=Object.assign({"Authorization":"Bearer "+TOKEN},opts.headers||{});
+  if(opts.body){opts.headers["Content-Type"]="application/json";opts.body=JSON.stringify(opts.body);}
+  const r=await fetch(path,opts);const d=await r.json().catch(()=>({}));
+  if(r.status===401){logout();throw new Error("login required");}
+  if(!r.ok)throw new Error(d.detail?JSON.stringify(d.detail):r.status);
+  return d;
+}
+function logout(){localStorage.removeItem("atok");location.reload();}
+async function doLogin(){
+  const d=await (await fetch("/auth/login",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({email:$("li_email").value,password:$("li_pw").value})})).json();
+  if(!d.token){$("li_msg").textContent=d.detail||"login failed";return;}
+  if(d.role!=="platform_admin"){$("li_msg").textContent="not a platform admin — restaurant owners use /app";return;}
+  TOKEN=d.token;localStorage.setItem("atok",d.token);boot();
+}
+function boot(){
+  if(!TOKEN){$("login").style.display="block";return;}
+  $("login").style.display="none";$("shell").style.display="block";
+  $("tabs").innerHTML=TABS.map(t=>`<button id="tab_${t}" onclick="go('${t}')">${t}</button>`).join("");
+  go(cur);
+}
+function go(t){cur=t;TABS.forEach(x=>$("tab_"+x).classList.toggle("on",x===t));render[t]().catch(e=>setMain(`<div class="card msg err">${esc(e.message)}</div>`));}
+function setMain(h){$("main").innerHTML=h;}
+function msg(id,text,err){const el=$(id);el.textContent=text;el.className="msg"+(err?" err":"");setTimeout(()=>el.textContent="",4000);}
+const render={};
+
+render["Tenants"]=async()=>{
+  const ts=await api("/admin/tenants");
+  setMain(`<div class="card"><h2>Tenants (${ts.length})</h2>
+  <table><tr><th>name</th><th>slug</th><th>industry</th><th>numbers</th><th>status</th><th></th></tr>
+  ${ts.map(t=>`<tr><td>${esc(t.name)}</td><td>${t.slug}</td><td>${t.industry}</td>
+    <td>${t.numbers.join(", ")||'<span class="pill warn">no number</span>'}</td>
+    <td><span class="pill ${t.status==="active"?"ok":t.status==="paused"?"bad":"warn"}">${t.status}</span></td>
+    <td class="row">${["active","paused","onboarding"].filter(s=>s!==t.status).map(s=>
+      `<button class="btn sm ghost" onclick="setStatus('${t.slug}','${s}')">${s}</button>`).join("")}</td></tr>`).join("")}</table></div>
+  <div class="card"><h2>New tenant</h2><div class="row">
+    <input id="t_slug" placeholder="slug e.g. marios-fitzroy"><input id="t_name" placeholder="Business name">
+    <input id="t_tz" placeholder="timezone" value="Australia/Melbourne"><input id="t_ind" placeholder="industry" value="restaurant">
+    <button class="btn sm" onclick="createTenant()">Create</button></div><div id="t_msg" class="msg"></div>
+    <p style="font-size:12px;color:var(--mut)">New tenants start as <b>onboarding</b> (calls not routed). Assign a number, add a tenant-admin user, then set active.</p></div>`);
+};
+async function createTenant(){try{await api("/admin/tenants",{method:"POST",body:{slug:$("t_slug").value,name:$("t_name").value,timezone:$("t_tz").value,industry:$("t_ind").value}});go("Tenants");}catch(e){msg("t_msg",e.message,1);}}
+async function setStatus(slug,status){await api(`/admin/tenants/${slug}/status`,{method:"POST",body:{status}});go("Tenants");}
+
+render["Numbers"]=async()=>{
+  const ns=await api("/admin/numbers"); const ts=await api("/admin/tenants");
+  setMain(`<div class="card"><h2>Phone numbers</h2>
+  <table><tr><th>number</th><th>tenant</th><th>label</th><th>active</th><th></th></tr>
+  ${ns.map(n=>`<tr><td>${n.e164}</td><td>${n.slug}</td><td>${esc(n.label)}</td>
+    <td>${n.active?'<span class="pill ok">routing</span>':'<span class="pill bad">released</span>'}</td>
+    <td>${n.active?`<button class="btn sm danger" onclick="releaseNum('${n.e164}')">release</button>`:""}</td></tr>`).join("")}</table></div>
+  <div class="card"><h2>Assign number</h2><div class="row">
+    <input id="n_e164" placeholder="+61370000003"><select id="n_slug">${ts.map(t=>`<option>${t.slug}</option>`).join("")}</select>
+    <input id="n_label" placeholder="label e.g. main line"><button class="btn sm" onclick="assignNum()">Assign</button></div>
+    <div id="n_msg" class="msg"></div>
+    <p style="font-size:12px;color:var(--mut)">Also point the Twilio number's voice webhook at <code>https://&lt;voice-host&gt;/voice</code> (set-twilio-webhook.sh).</p></div>`);
+};
+async function assignNum(){try{await api("/admin/numbers",{method:"POST",body:{e164:$("n_e164").value,slug:$("n_slug").value,label:$("n_label").value}});go("Numbers");}catch(e){msg("n_msg",e.message,1);}}
+async function releaseNum(e){await api(`/admin/numbers/${encodeURIComponent(e)}/release`,{method:"POST"});go("Numbers");}
+
+render["Users"]=async()=>{
+  const us=await api("/admin/users"); const ts=await api("/admin/tenants");
+  setMain(`<div class="card"><h2>Users</h2>
+  <table><tr><th>email</th><th>role</th><th>tenant</th></tr>
+  ${us.map(u=>`<tr><td>${esc(u.email)}</td><td>${u.role}</td><td>${u.slug||"—"}</td></tr>`).join("")}</table></div>
+  <div class="card"><h2>New user</h2><div class="row">
+    <input id="u_email" placeholder="email"><input id="u_pw" placeholder="password" type="password">
+    <select id="u_role"><option>tenant_admin</option><option>platform_admin</option></select>
+    <select id="u_slug">${ts.map(t=>`<option>${t.slug}</option>`).join("")}</select>
+    <button class="btn sm" onclick="createUser()">Create</button></div><div id="u_msg" class="msg"></div></div>`);
+};
+async function createUser(){try{await api("/admin/users",{method:"POST",body:{email:$("u_email").value,password:$("u_pw").value,role:$("u_role").value,slug:$("u_role").value==="tenant_admin"?$("u_slug").value:null}});go("Users");}catch(e){msg("u_msg",e.message,1);}}
+
+render["Health"]=async()=>{
+  const ts=await api("/admin/tenants");
+  const stats=await Promise.all(ts.map(t=>api(`/owner/${t.slug}/overview`).catch(()=>null)));
+  let metrics=null; try{metrics=await api("/admin/metrics/summary");}catch(e){}
+  setMain(`<div class="card"><h2>Per-tenant activity</h2><div class="cards">
+  ${ts.map((t,i)=>{const s=stats[i];return `<div class="card stat"><b>${esc(t.name)}</b><br>
+    ${s?`calls 24h: <b>${s.calls_24h}</b> · bookings today: <b>${s.bookings_today}</b><br>messages: ${s.messages_total} (${s.messages_urgent} urgent)`:"unavailable"}</div>`;}).join("")}
+  </div></div>
+  ${metrics?`<div class="card"><h2>Call quality (7 days)</h2>
+    <table><tr><th>tenant</th><th>calls</th><th>avg STT ms</th><th>avg LLM ms</th><th>avg TTS ms</th><th>avg tool ms</th><th>dead air</th><th>"hello?"</th><th>tool fails</th><th>dupes</th><th>low conf</th></tr>
+    ${metrics.tenants.map(m=>`<tr><td>${m.slug}</td><td>${m.calls}</td><td>${m.avg_stt_ms??"—"}</td><td>${m.avg_llm_ms??"—"}</td><td>${m.avg_tts_ms??"—"}</td><td>${m.avg_tool_ms??"—"}</td>
+      <td>${m.dead_air}</td><td>${m.hello_retries}</td><td>${m.tool_failures}</td><td>${m.duplicates}</td><td>${m.low_confidence}</td></tr>`).join("")}</table></div>`
+  :`<div class="card"><h2>Call quality</h2><p style="color:var(--mut)">No metrics yet — they appear once calls flow through the monitored pipeline.</p></div>`}`);
+};
+
+boot();
+</script>
+</body>
+</html>

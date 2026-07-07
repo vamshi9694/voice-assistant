@@ -13,7 +13,9 @@ from fastapi import Depends, HTTPException
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
-from .models import Business, PhoneNumber, TenantStatus
+from datetime import date as date_t, time as time_t
+
+from .models import Business, HolidayOverride, PhoneNumber, ServicePeriod, TenantStatus
 
 
 def _norm_e164(raw: str) -> str:
@@ -162,3 +164,69 @@ def wire(app, db):
         if not biz:
             raise HTTPException(404, "unknown tenant")
         return biz.model_dump(exclude={"id"})
+
+    # ------------------------- hours + holidays -------------------------
+
+    class PeriodIn(BaseModel):
+        day_of_week: int
+        name: str = "dinner"
+        opens: time_t
+        last_seating: time_t
+        closes: time_t
+
+    @app.post("/owner/{slug}/hours/replace")
+    def replace_hours(slug: str, periods: list[PeriodIn], session: Session = Depends(db)):
+        """Replace the whole weekly schedule in one save (how the UI edits it)."""
+        biz = session.exec(select(Business).where(Business.slug == slug)).first()
+        if not biz:
+            raise HTTPException(404, "unknown tenant")
+        for row in session.exec(select(ServicePeriod).where(ServicePeriod.business_id == biz.id)).all():
+            session.delete(row)
+        for p in periods:
+            if not 0 <= p.day_of_week <= 6:
+                raise HTTPException(422, "day_of_week must be 0 (Mon) .. 6 (Sun)")
+            session.add(ServicePeriod(business_id=biz.id, **p.model_dump()))
+        session.commit()
+        return {"ok": True, "periods": len(periods)}
+
+    class HolidayIn(BaseModel):
+        on_date: date_t
+        closed: bool = True
+        note: str = ""
+
+    @app.get("/owner/{slug}/holidays")
+    def list_holidays(slug: str, session: Session = Depends(db)):
+        biz = session.exec(select(Business).where(Business.slug == slug)).first()
+        if not biz:
+            raise HTTPException(404, "unknown tenant")
+        rows = session.exec(select(HolidayOverride).where(
+            HolidayOverride.business_id == biz.id)).all()
+        return sorted((r.model_dump() for r in rows), key=lambda r: str(r["on_date"]))
+
+    @app.post("/owner/{slug}/holidays")
+    def upsert_holiday(slug: str, h: HolidayIn, session: Session = Depends(db)):
+        biz = session.exec(select(Business).where(Business.slug == slug)).first()
+        if not biz:
+            raise HTTPException(404, "unknown tenant")
+        row = session.exec(select(HolidayOverride).where(
+            HolidayOverride.business_id == biz.id,
+            HolidayOverride.on_date == h.on_date)).first()
+        if row:
+            row.closed, row.note = h.closed, h.note
+        else:
+            row = HolidayOverride(business_id=biz.id, **h.model_dump())
+        session.add(row)
+        session.commit()
+        return {"ok": True, "id": row.id}
+
+    @app.post("/owner/{slug}/holidays/{hid}/delete")
+    def delete_holiday(slug: str, hid: int, session: Session = Depends(db)):
+        biz = session.exec(select(Business).where(Business.slug == slug)).first()
+        if not biz:
+            raise HTTPException(404, "unknown tenant")
+        row = session.get(HolidayOverride, hid)
+        if not row or row.business_id != biz.id:
+            raise HTTPException(404, "holiday not found")
+        session.delete(row)
+        session.commit()
+        return {"ok": True}

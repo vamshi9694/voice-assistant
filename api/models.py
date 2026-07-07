@@ -70,6 +70,20 @@ class Business(SQLModel, table=True):
             return {}
 
 
+class UserRole(str, Enum):
+    platform_admin = "platform_admin"   # the SaaS owner — everything
+    tenant_admin = "tenant_admin"       # one restaurant — its own /owner/{slug}/*
+
+
+class User(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    email: str = Field(index=True, unique=True)
+    password_hash: str                                   # scrypt$salt$hash (see auth.py)
+    role: UserRole = UserRole.tenant_admin
+    business_id: Optional[int] = Field(default=None, foreign_key="business.id")
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 class PhoneNumber(SQLModel, table=True):
     """Inbound number -> tenant routing. One tenant may own several numbers
     (locations, marketing lines); a number maps to exactly one tenant."""
