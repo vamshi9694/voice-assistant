@@ -23,6 +23,7 @@ from pipecat.serializers.twilio import TwilioFrameSerializer
 from pipecat.transports.base_transport import TransportParams
 from pipecat.transports.websocket.fastapi import FastAPIWebsocketParams
 
+from . import dashboard  # noqa: F401 — registers /dashboard routes on the runner app
 from . import monitor  # noqa: F401 — registers /monitor routes + loguru sink on the runner app
 from . import warmup  # noqa: F401 — pre-warms Ollama + Whisper-MLX on app startup
 from .pipeline import build_call_task, transport_audio_params

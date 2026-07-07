@@ -9,7 +9,7 @@ Run:  uvicorn api.main:app --reload --port 8080
 """
 import os
 from contextlib import asynccontextmanager
-from datetime import date as date_t, datetime, time as time_t
+from datetime import date as date_t, datetime, time as time_t, timedelta
 
 from fastapi import Depends, FastAPI, HTTPException
 from pydantic import BaseModel
@@ -17,7 +17,8 @@ from sqlmodel import Session, SQLModel, create_engine, select
 
 from . import availability, notify
 from .models import (
-    Business, CallOutcome, CallRecord, KBEntry, Message, Reservation, ServicePeriod, Urgency,
+    Business, CallOutcome, CallRecord, KBEntry, Message, Reservation, ReservationStatus,
+    ServicePeriod, Urgency,
 )
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./receptionist.db")
@@ -196,3 +197,107 @@ def list_reservations(slug: str, on: date_t | None = None, session: Session = De
     if on:
         stmt = stmt.where(Reservation.on_date == on)
     return session.exec(stmt.order_by(Reservation.on_date, Reservation.at_time)).all()
+
+
+# ======================= dashboard-facing (read + manage) =======================
+
+@app.get("/owner/businesses")
+def list_businesses(session: Session = Depends(db)):
+    """All tenants — powers the dashboard's business switcher."""
+    rows = session.exec(select(Business).order_by(Business.name)).all()
+    return [{"slug": b.slug, "name": b.name} for b in rows]
+
+
+@app.get("/owner/{slug}/messages")
+def list_messages(slug: str, limit: int = 100, session: Session = Depends(db)):
+    biz = get_business(session, slug)
+    return session.exec(
+        select(Message).where(Message.business_id == biz.id)
+        .order_by(Message.created_at.desc()).limit(limit)
+    ).all()
+
+
+@app.get("/owner/{slug}/kb")
+def list_kb(slug: str, session: Session = Depends(db)):
+    biz = get_business(session, slug)
+    return session.exec(
+        select(KBEntry).where(KBEntry.business_id == biz.id).order_by(KBEntry.topic)
+    ).all()
+
+
+@app.post("/owner/{slug}/kb/delete")
+def delete_kb(slug: str, entry: dict, session: Session = Depends(db)):
+    biz = get_business(session, slug)
+    row = session.exec(
+        select(KBEntry).where(KBEntry.business_id == biz.id, KBEntry.topic == entry.get("topic"))
+    ).first()
+    if row:
+        session.delete(row)
+        session.commit()
+    return {"ok": True}
+
+
+@app.get("/owner/{slug}/hours")
+def list_hours(slug: str, session: Session = Depends(db)):
+    biz = get_business(session, slug)
+    rows = session.exec(
+        select(ServicePeriod).where(ServicePeriod.business_id == biz.id)
+    ).all()
+    return [
+        {"id": p.id, "day_of_week": p.day_of_week, "name": p.name,
+         "opens": p.opens.isoformat(), "last_seating": p.last_seating.isoformat(),
+         "closes": p.closes.isoformat()}
+        for p in sorted(rows, key=lambda x: (x.day_of_week, x.opens))
+    ]
+
+
+@app.post("/owner/{slug}/reservations/{res_id}/cancel")
+def cancel_reservation(slug: str, res_id: int, session: Session = Depends(db)):
+    biz = get_business(session, slug)
+    row = session.exec(
+        select(Reservation).where(
+            Reservation.id == res_id, Reservation.business_id == biz.id
+        )
+    ).first()
+    if not row:
+        raise HTTPException(404, "reservation not found")
+    row.status = ReservationStatus.cancelled
+    session.add(row)
+    session.commit()
+    return {"ok": True}
+
+
+@app.get("/owner/{slug}/overview")
+def owner_overview(slug: str, session: Session = Depends(db)):
+    """Headline counts for the dashboard overview cards."""
+    biz = get_business(session, slug)
+    today = date_t.today()
+    day_ago = datetime.utcnow() - timedelta(hours=24)
+
+    bookings_today = len(session.exec(
+        select(Reservation).where(
+            Reservation.business_id == biz.id, Reservation.on_date == today,
+            Reservation.status == ReservationStatus.confirmed,
+        )
+    ).all())
+    upcoming = len(session.exec(
+        select(Reservation).where(
+            Reservation.business_id == biz.id, Reservation.on_date >= today,
+            Reservation.status == ReservationStatus.confirmed,
+        )
+    ).all())
+    messages = session.exec(select(Message).where(Message.business_id == biz.id)).all()
+    urgent = len([m for m in messages if m.urgency == Urgency.urgent])
+    calls_24h = len(session.exec(
+        select(CallRecord).where(
+            CallRecord.business_id == biz.id, CallRecord.started_at >= day_ago
+        )
+    ).all())
+    return {
+        "business": biz.name,
+        "bookings_today": bookings_today,
+        "upcoming_bookings": upcoming,
+        "messages_total": len(messages),
+        "messages_urgent": urgent,
+        "calls_24h": calls_24h,
+    }

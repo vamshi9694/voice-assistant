@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Receptionist · Dashboard</title>
+<style>
+  :root{
+    --bg:#f6f7f9; --card:#fff; --ink:#1c2430; --muted:#6b7684; --line:#e5e8ec;
+    --brand:#2f6df6; --brandink:#1e4fd0; --good:#159a63; --warn:#c9821a;
+    --urgent:#d64545; --chip:#eef2ff;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:14px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  header{display:flex;align-items:center;gap:14px;padding:14px 22px;background:var(--card);
+    border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5}
+  header h1{font-size:16px;margin:0;font-weight:650}
+  header h1 span{color:var(--muted);font-weight:400}
+  select{margin-left:auto;padding:7px 10px;border:1px solid var(--line);border-radius:8px;
+    font:inherit;background:#fff;color:var(--ink)}
+  .monitor-link{padding:7px 12px;border:1px solid var(--line);border-radius:8px;
+    text-decoration:none;color:var(--brandink);font-weight:550}
+  .monitor-link:hover{border-color:var(--brand)}
+  .tabs{display:flex;gap:4px;padding:0 22px;background:var(--card);border-bottom:1px solid var(--line)}
+  .tab{padding:11px 16px;border:none;background:none;font:inherit;color:var(--muted);cursor:pointer;
+    border-bottom:2px solid transparent}
+  .tab:hover{color:var(--ink)}
+  .tab.active{color:var(--brandink);border-bottom-color:var(--brand);font-weight:600}
+  main{padding:22px;max-width:1080px;margin:0 auto}
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;margin-bottom:8px}
+  .stat{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px}
+  .stat .n{font-size:26px;font-weight:700}
+  .stat .l{color:var(--muted);font-size:12.5px;margin-top:2px}
+  .stat.urgent .n{color:var(--urgent)}
+  .panel{background:var(--card);border:1px solid var(--line);border-radius:12px;overflow:hidden;margin-top:16px}
+  .panel h2{font-size:13px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);
+    margin:0;padding:14px 16px;border-bottom:1px solid var(--line)}
+  table{width:100%;border-collapse:collapse}
+  th,td{text-align:left;padding:11px 16px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.03em}
+  tr:last-child td{border-bottom:none}
+  .chip{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;background:var(--chip);color:var(--brandink)}
+  .chip.urgent{background:#fdeaea;color:var(--urgent)}
+  .chip.cancelled{background:#eef0f2;color:var(--muted)}
+  .chip.confirmed{background:#e7f6ee;color:var(--good)}
+  .btn{padding:6px 11px;border:1px solid var(--line);border-radius:8px;background:#fff;cursor:pointer;font:inherit;color:var(--ink)}
+  .btn:hover{border-color:var(--brand);color:var(--brandink)}
+  .btn.danger:hover{border-color:var(--urgent);color:var(--urgent)}
+  .btn.primary{background:var(--brand);color:#fff;border-color:var(--brand)}
+  .btn.primary:hover{background:var(--brandink)}
+  input,textarea{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;font:inherit}
+  textarea{min-height:52px;resize:vertical}
+  .kb-add{display:grid;grid-template-columns:1fr 2fr auto;gap:8px;padding:14px 16px;align-items:start}
+  .muted{color:var(--muted)}
+  .empty{padding:26px 16px;text-align:center;color:var(--muted)}
+  .hidden{display:none}
+  .summary-cell{max-width:420px}
+  .transcript{white-space:pre-wrap;color:var(--muted);font-size:12.5px;margin-top:4px;display:none}
+  .row-toggle{cursor:pointer}
+</style>
+</head>
+<body>
+  <header>
+    <h1>AI Receptionist <span>· Dashboard</span></h1>
+    <select id="biz"></select>
+    <a class="monitor-link" id="monitorLink" href="/monitor" target="_blank">Live monitor ↗</a>
+  </header>
+
+  <div class="tabs" id="tabs">
+    <button class="tab active" data-tab="overview">Overview</button>
+    <button class="tab" data-tab="bookings">Bookings</button>
+    <button class="tab" data-tab="messages">Messages &amp; Calls</button>
+    <button class="tab" data-tab="knowledge">Knowledge &amp; Hours</button>
+  </div>
+
+  <main>
+    <section id="overview"></section>
+    <section id="bookings" class="hidden"></section>
+    <section id="messages" class="hidden"></section>
+    <section id="knowledge" class="hidden"></section>
+  </main>
+
+<script>
+(function(){
+  const token = new URLSearchParams(location.search).get("token");
+  const q = (p)=> "/dashboard/api/"+p + (token ? (p.includes("?")?"&":"?")+"token="+encodeURIComponent(token) : "");
+  const api = async (path, opts)=>{ const r = await fetch(q(path), opts); return r.json(); };
+  const esc = s => String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  const el = id => document.getElementById(id);
+  let slug = null;
+
+  const DAYS=["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
+  const fmtDate = d => d ? new Date(d+"T00:00:00").toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric"}) : "";
+  const fmtDT = s => s ? new Date(s).toLocaleString("en-US",{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"}) : "";
+  const t12 = t => { if(!t) return ""; const [h,m]=t.split(":"); const H=+h; return ((H%12)||12)+":"+m+(H<12?"am":"pm"); };
+
+  // ---- tenant switcher ----
+  async function loadBusinesses(){
+    const list = await api("businesses");
+    const sel = el("biz");
+    sel.innerHTML = list.map(b=>`<option value="${esc(b.slug)}">${esc(b.name)}</option>`).join("");
+    slug = list.length ? list[0].slug : null;
+    sel.onchange = ()=>{ slug = sel.value; render(); };
+    render();
+  }
+
+  // ---- tabs ----
+  let active="overview";
+  el("tabs").addEventListener("click", e=>{
+    const t=e.target.closest(".tab"); if(!t) return;
+    document.querySelectorAll(".tab").forEach(x=>x.classList.remove("active"));
+    t.classList.add("active"); active=t.dataset.tab;
+    document.querySelectorAll("main > section").forEach(s=>s.classList.add("hidden"));
+    el(active).classList.remove("hidden");
+    render();
+  });
+
+  function render(){ if(!slug) return; ({overview:renderOverview,bookings:renderBookings,messages:renderMessages,knowledge:renderKnowledge}[active])(); }
+
+  // ---- overview ----
+  async function renderOverview(){
+    el("monitorLink").href = "/monitor" + (token?"?token="+encodeURIComponent(token):"");
+    const o = await api(slug+"/overview");
+    el("overview").innerHTML = `
+      <div class="cards">
+        <div class="stat"><div class="n">${o.bookings_today??0}</div><div class="l">Bookings today</div></div>
+        <div class="stat"><div class="n">${o.upcoming_bookings??0}</div><div class="l">Upcoming bookings</div></div>
+        <div class="stat"><div class="n">${o.calls_24h??0}</div><div class="l">Calls (24h)</div></div>
+        <div class="stat"><div class="n">${o.messages_total??0}</div><div class="l">Messages</div></div>
+        <div class="stat ${o.messages_urgent?'urgent':''}"><div class="n">${o.messages_urgent??0}</div><div class="l">Urgent messages</div></div>
+      </div>
+      <div class="panel"><h2>Getting around</h2>
+        <div class="empty" style="text-align:left">
+          Use the tabs above: <b>Bookings</b> to see & cancel reservations, <b>Messages &amp; Calls</b>
+          for what callers left and AI call summaries, <b>Knowledge &amp; Hours</b> to update what the
+          assistant tells people. <b>Live monitor</b> (top right) shows calls happening right now.
+        </div>
+      </div>`;
+  }
+
+  // ---- bookings ----
+  async function renderBookings(){
+    const rows = await api(slug+"/reservations");
+    const body = rows.length ? rows.map(r=>`
+      <tr>
+        <td>${fmtDate(r.on_date)}<br><span class="muted">${t12(r.at_time)}</span></td>
+        <td>${esc(r.guest_name)}<br><span class="muted">${esc(r.guest_phone)}</span></td>
+        <td>${r.party_size}</td>
+        <td>${esc(r.notes)||'<span class="muted">—</span>'}</td>
+        <td><span class="chip ${r.status}">${r.status}</span></td>
+        <td>${r.status==='confirmed'?`<button class="btn danger" onclick="cancelRes(${r.id})">Cancel</button>`:''}</td>
+      </tr>`).join("") : `<tr><td colspan="6" class="empty">No reservations yet.</td></tr>`;
+    el("bookings").innerHTML = `<div class="panel"><h2>Reservations</h2>
+      <table><thead><tr><th>When</th><th>Guest</th><th>Party</th><th>Notes</th><th>Status</th><th></th></tr></thead>
+      <tbody>${body}</tbody></table></div>`;
+  }
+  window.cancelRes = async (id)=>{ await api(slug+"/reservations/"+id+"/cancel",{method:"POST"}); renderBookings(); };
+
+  // ---- messages & calls ----
+  async function renderMessages(){
+    const [msgs, calls] = await Promise.all([api(slug+"/messages"), api(slug+"/calls")]);
+    const mBody = msgs.length ? msgs.map(m=>`
+      <tr><td>${fmtDT(m.created_at)}</td>
+        <td>${esc(m.caller_name)}<br><span class="muted">${esc(m.caller_phone)}</span></td>
+        <td>${esc(m.reason)}</td>
+        <td><span class="chip ${m.urgency==='urgent'?'urgent':''}">${m.urgency}</span></td></tr>`).join("")
+      : `<tr><td colspan="4" class="empty">No messages yet.</td></tr>`;
+    const cBody = calls.length ? calls.map((c,i)=>`
+      <tr class="row-toggle" onclick="document.getElementById('tr${i}').style.display=document.getElementById('tr${i}').style.display==='block'?'none':'block'">
+        <td>${fmtDT(c.started_at)}</td>
+        <td>${c.outcome?`<span class="chip">${esc(c.outcome)}</span>`:'<span class="muted">—</span>'}</td>
+        <td class="summary-cell">${esc(c.summary)||'<span class="muted">—</span>'}
+          <div class="transcript" id="tr${i}">${esc(c.transcript)||'(no transcript)'}</div></td>
+      </tr>`).join("") : `<tr><td colspan="3" class="empty">No calls yet.</td></tr>`;
+    el("messages").innerHTML = `
+      <div class="panel"><h2>Messages</h2>
+        <table><thead><tr><th>When</th><th>Caller</th><th>Reason</th><th>Urgency</th></tr></thead><tbody>${mBody}</tbody></table></div>
+      <div class="panel"><h2>Call history <span class="muted" style="text-transform:none;font-weight:400"> — click a row for the transcript</span></h2>
+        <table><thead><tr><th>When</th><th>Outcome</th><th>Summary</th></tr></thead><tbody>${cBody}</tbody></table></div>`;
+  }
+
+  // ---- knowledge & hours ----
+  async function renderKnowledge(){
+    const [kb, hours] = await Promise.all([api(slug+"/kb"), api(slug+"/hours")]);
+    const kbBody = kb.length ? kb.map(k=>`
+      <tr><td><b>${esc(k.topic)}</b></td>
+        <td>${esc(k.answer)}</td>
+        <td><button class="btn danger" onclick="delKb('${esc(k.topic).replace(/'/g,"\\'")}')">Remove</button></td></tr>`).join("")
+      : `<tr><td colspan="3" class="empty">No knowledge entries yet.</td></tr>`;
+    const hBody = hours.length ? hours.map(h=>`
+      <tr><td>${DAYS[h.day_of_week]}</td><td>${esc(h.name)}</td>
+        <td>${t12(h.opens)} – ${t12(h.closes)}</td><td class="muted">last seating ${t12(h.last_seating)}</td></tr>`).join("")
+      : `<tr><td colspan="4" class="empty">No hours configured.</td></tr>`;
+    el("knowledge").innerHTML = `
+      <div class="panel"><h2>Knowledge base <span class="muted" style="text-transform:none;font-weight:400"> — what the assistant tells callers</span></h2>
+        <div class="kb-add">
+          <input id="kbTopic" placeholder="Topic (e.g. parking)">
+          <textarea id="kbAnswer" placeholder="Answer the assistant should give"></textarea>
+          <button class="btn primary" onclick="saveKb()">Save</button>
+        </div>
+        <table><thead><tr><th>Topic</th><th>Answer</th><th></th></tr></thead><tbody>${kbBody}</tbody></table></div>
+      <div class="panel"><h2>Opening hours</h2>
+        <table><thead><tr><th>Day</th><th>Service</th><th>Open</th><th></th></tr></thead><tbody>${hBody}</tbody></table>
+        <div class="empty" style="text-align:left">Editing hours from here is coming soon — for now they're managed in setup.</div></div>`;
+  }
+  window.saveKb = async ()=>{
+    const topic=el("kbTopic").value.trim(), answer=el("kbAnswer").value.trim();
+    if(!topic||!answer) return;
+    await api(slug+"/kb",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({topic,answer})});
+    renderKnowledge();
+  };
+  window.delKb = async (topic)=>{ await api(slug+"/kb/delete",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({topic})}); renderKnowledge(); };
+
+  loadBusinesses().catch(e=>{ el("overview").innerHTML='<div class="panel"><div class="empty">Could not reach the control plane. Is it running?</div></div>'; });
+})();
+</script>
+</body>
+</html>
