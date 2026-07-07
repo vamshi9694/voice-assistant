@@ -76,6 +76,10 @@ _menu.wire(app, db, get_business, require_callback_phone)
 from . import ingest as _ingest  # noqa: E402
 _ingest.wire(app, db, get_business)
 
+# Website crawler -> draft -> approve (api/crawler.py)
+from . import crawler as _crawler  # noqa: E402
+_crawler.wire(app, db, get_business)
+
 
 # ======================= agent-facing (tool backends) =======================
 

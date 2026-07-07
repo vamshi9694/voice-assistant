@@ -161,6 +161,23 @@ class MenuDraft(SQLModel, table=True):
     reviewed_at: Optional[datetime] = None
 
 
+class CrawlDraft(SQLModel, table=True):
+    """Facts extracted from the tenant's website, awaiting human approval.
+    facts_json: [{"type": "address"|"hours"|"faq"|"policy",
+                  "topic": str, "value": str, "source_url": str}]
+    menu_urls_json: candidate menu pages to feed into /menu/ingest/url."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    business_id: int = Field(index=True, foreign_key="business.id")
+    start_url: str = ""
+    pages_crawled: int = 0
+    facts_json: str = "[]"
+    menu_urls_json: str = "[]"
+    extraction_notes: str = ""
+    status: DraftStatus = DraftStatus.pending
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    reviewed_at: Optional[datetime] = None
+
+
 class OrderStatus(str, Enum):
     received = "received"
     ready = "ready"
