@@ -76,6 +76,26 @@ def build_services():
                 generation_config=GenerationConfig(speed=0.95),
             ),
         )
+
+        # Provider fallback: if Cartesia errors mid-call, fail over to Deepgram
+        # Aura TTS (reuses the Deepgram key you already have — no new provider).
+        # Off by default; enable with TTS_FALLBACK=on.
+        if os.getenv("TTS_FALLBACK", "off").lower() != "off":
+            from pipecat.services.deepgram.tts import DeepgramTTSService
+            from pipecat.pipeline.service_switcher import (
+                ServiceSwitcher,
+                ServiceSwitcherStrategyFailover,
+            )
+
+            backup_tts = DeepgramTTSService(
+                api_key=os.getenv("DEEPGRAM_API_KEY"),
+                voice=os.getenv("DEEPGRAM_TTS_VOICE", "aura-2-thalia-en"),
+            )
+            tts = ServiceSwitcher(
+                services=[tts, backup_tts],
+                strategy_type=ServiceSwitcherStrategyFailover,
+            )
+            logger.info("TTS provider fallback ON: Cartesia → Deepgram Aura")
     else:
         # Fully local, $0/minute. Requires: ollama serve + `ollama pull qwen2.5:14b`
         from pipecat.services.kokoro.tts import KokoroTTSService
@@ -152,11 +172,25 @@ async def build_call_task(transport, slug: str, call_id: str | None = None) -> P
 
     aggregators = LLMContextAggregatorPair(context, user_params=user_params)
 
+    # Optional naturalness processors sit between the LLM and TTS so they can
+    # inject short spoken frames. Both default OFF (env flags) and only ADD
+    # audio — they never drop or change the real conversation.
+    extras = []
+    if os.getenv("BACKCHANNEL", "off").lower() != "off":
+        from .naturalness import Backchannel
+        extras.append(Backchannel())
+        logger.info("Backchannel ON (experimental)")
+    if os.getenv("FILLER", "off").lower() != "off":
+        from .naturalness import ThinkingFiller
+        extras.append(ThinkingFiller())
+        logger.info("Thinking filler ON")
+
     pipeline = Pipeline([
         transport.input(),            # audio frames in (20ms chunks)
         stt,                          # streaming partials -> finals
         aggregators.user(),           # user turn -> context
         llm,                          # streamed tokens + tool calls
+        *extras,                      # backchannel / thinking-filler (optional)
         tts,                          # first-sentence streaming synthesis
         transport.output(),           # audio out (interruptible)
         aggregators.assistant(),      # assistant turn -> context
