@@ -10,8 +10,19 @@ from datetime import datetime
 DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 
 
-def build_system_prompt(ctx: dict, now: datetime) -> str:
+LANG_RULES = {
+    "en": "- Always reply in English. If speech looks garbled, warmly ask them to repeat.",
+    "es": "- Responde SIEMPRE en español, con un tono cálido y natural. Si no "
+          "entiendes algo, pide amablemente que lo repitan.",
+    "multi": "- The caller may speak English or Spanish. Detect which they're using "
+             "and ALWAYS reply in that SAME language. If they switch, switch with "
+             "them. Say numbers, dates, and read-backs in the caller's language.",
+}
+
+
+def build_system_prompt(ctx: dict, now: datetime, language: str = "en") -> str:
     biz = ctx["business"]
+    lang_rule = LANG_RULES.get(language, LANG_RULES["en"])
     kb_lines = "\n".join(f"- {k['topic']}: {k['answer']}" for k in ctx["kb"]) or "- (none)"
     hours_lines = "\n".join(
         f"- {DAYS[h['day']]} ({h['name']}): opens {h['opens']}, last seating {h['last_seating']}, closes {h['closes']}"
@@ -38,8 +49,9 @@ just enough to sound like a relaxed human, never forced or repetitive.
 something up or check a booking, say a quick filler like "Let me check that for you \
 real quick..." or "One sec, let me pull that up..." — then call the tool. This makes \
 the wait feel natural instead of like dead air.
-- It's a phone call, so speech may be garbled — always reply in English, and if you're \
-unsure what they said, just warmly ask them to say it again.
+{lang_rule}
+- It's a phone call, so speech may be garbled — if you're unsure what they said, just \
+warmly ask them to say it again.
 - Spell out anything you're confirming: read phone numbers back digit by digit.
 - PHONE NUMBERS: accept whatever format the caller gives — spoken, or with spaces, \
 dashes, or parentheses like "(665) 493-1454". Silently keep just the digits yourself. \
