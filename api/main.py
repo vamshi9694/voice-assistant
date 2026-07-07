@@ -72,6 +72,10 @@ _tenants.wire(app, db)
 from . import menu as _menu  # noqa: E402
 _menu.wire(app, db, get_business, require_callback_phone)
 
+# Menu ingestion: CSV/PDF/image/URL -> draft -> approve (api/ingest.py)
+from . import ingest as _ingest  # noqa: E402
+_ingest.wire(app, db, get_business)
+
 
 # ======================= agent-facing (tool backends) =======================
 

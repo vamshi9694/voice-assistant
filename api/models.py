@@ -141,6 +141,26 @@ class MenuItem(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
 
+class DraftStatus(str, Enum):
+    pending = "pending"
+    approved = "approved"
+    rejected = "rejected"
+
+
+class MenuDraft(SQLModel, table=True):
+    """Staged menu extracted from an upload/URL. NOTHING goes live until a
+    human approves — the agent only ever sees MenuItem rows."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    business_id: int = Field(index=True, foreign_key="business.id")
+    source: str = "csv"                                  # csv | pdf | image | website
+    source_url: str = ""                                 # URL or original filename
+    items_json: str = "[]"                               # [{"section","name","description","price","dietary"}]
+    extraction_notes: str = ""                           # parser warnings for the reviewer
+    status: DraftStatus = DraftStatus.pending
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    reviewed_at: Optional[datetime] = None
+
+
 class OrderStatus(str, Enum):
     received = "received"
     ready = "ready"

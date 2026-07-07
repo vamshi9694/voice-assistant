@@ -9,6 +9,8 @@ fastapi>=0.115
 uvicorn[standard]>=0.30
 sqlmodel>=0.0.22
 httpx>=0.27
+python-multipart>=0.0.9   # file uploads (menu ingestion)
+pypdf>=4.0                # PDF text extraction (menu ingestion)
 
 # --- Logging ---
 loguru>=0.7
