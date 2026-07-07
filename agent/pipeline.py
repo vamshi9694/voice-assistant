@@ -75,10 +75,11 @@ def build_services():
             ),
         )
         llm = OpenAILLMService(model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"))
-        # Cartesia synthesis language. For bilingual ("multi") we bias to Spanish
-        # since it's the primary; sonic-3.5 is multilingual so English lines
-        # still render acceptably. Set to a Spanish voice for best quality.
-        _tts_lang = {"en": Language.EN, "es": Language.ES, "multi": Language.ES}.get(
+        # Cartesia synthesis language. Bilingual ("multi") defaults to English;
+        # sonic-3.5 is multilingual so Spanish replies still render acceptably
+        # through the same voice (swap to a Spanish voice if you want perfect
+        # Spanish pronunciation).
+        _tts_lang = {"en": Language.EN, "es": Language.ES, "multi": Language.EN}.get(
             LANGUAGE, Language.EN
         )
         tts = CartesiaTTSService(
@@ -227,14 +228,14 @@ async def build_call_task(transport, slug: str, call_id: str | None = None) -> P
     # a fixed line.) TTSSpeakFrame(append_to_context=True) also records it in
     # history so the model knows it already greeted.
     biz = ctx["business"]
-    # Language-aware greeting. For bilingual ("multi") we lead in Spanish (the
-    # primary) then English, so either caller feels served and the bot then
-    # follows whichever language they answer in.
+    # Language-aware greeting. Bilingual ("multi") opens in ENGLISH by default,
+    # then follows whichever language the caller answers in (STT auto-detects,
+    # the LLM mirrors it). Spanish-only ("es") opens in Spanish.
+    _greeting_en = f"Thanks for calling {biz['name']}! This is the AI assistant — how can I help?"
     _greetings = {
-        "en": f"Thanks for calling {biz['name']}! This is the AI assistant — how can I help?",
+        "en": _greeting_en,
         "es": f"¡Gracias por llamar a {biz['name']}! Soy el asistente virtual, ¿en qué puedo ayudarle?",
-        "multi": f"¡Gracias por llamar a {biz['name']}! Soy el asistente virtual. "
-                 f"How can I help you today?",
+        "multi": _greeting_en,
     }
     greeting = biz.get("greeting") or _greetings.get(LANGUAGE, _greetings["en"])
 
