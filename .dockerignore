@@ -1,0 +1,12 @@
+# Keep the build context small + never ship dev/local artifacts.
+.venv/
+**/__pycache__/
+*.pyc
+*.db
+*.sqlite
+.env
+.git/
+.DS_Store
+uploads/
+*.zip
+receptionist-mvp.zip

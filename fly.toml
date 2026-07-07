@@ -1,0 +1,43 @@
+# Fly.io config for the AI receptionist (production, hosted stack).
+# Rename `app` to match what `fly launch` creates, and set PUBLIC_HOST to that
+# same "<app>.fly.dev" hostname (Twilio's TwiML uses it for the media stream).
+
+app = "receptionist-voice"
+primary_region = "iad"          # pick the region closest to your Twilio number
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  STACK = "hosted"
+  SMART_TURN = "off"
+  BUSINESS_SLUG = "luigis-carlton"
+  CONTROL_PLANE_URL = "http://127.0.0.1:8080"
+  DATABASE_URL = "sqlite:////data/receptionist.db"
+  # MUST equal this app's public hostname (no scheme). Update if you rename the app.
+  PUBLIC_HOST = "receptionist-voice.fly.dev"
+
+# Persist the SQLite DB across deploys/restarts.
+# Create it once:  fly volumes create data --size 1 --region iad
+[mounts]
+  source = "data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 7860
+  force_https = true
+  # Voice can't tolerate cold starts — keep one machine warm at all times.
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "40s"
+    method = "GET"
+    path = "/status"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "1gb"

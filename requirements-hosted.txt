@@ -1,0 +1,17 @@
+# Cloud (hosted-stack) dependencies only. The pipecat voice engine + its
+# hosted service extras are installed separately in the Dockerfile:
+#   pip install "pipecat-ai[webrtc,silero,deepgram,openai,cartesia,runner]==1.5.0"
+# (No MLX / Whisper / Kokoro / Smart-Turn here — those are the Mac-only local
+#  stack and must not go into the cloud image.)
+
+# --- Control plane ---
+fastapi>=0.115
+uvicorn[standard]>=0.30
+sqlmodel>=0.0.22
+httpx>=0.27
+
+# --- Logging ---
+loguru>=0.7
+
+# --- Phone + SMS ---
+twilio>=9.0

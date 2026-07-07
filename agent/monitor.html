@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Receptionist · Monitor</title>
+<style>
+  :root {
+    --bg: #0d1117; --panel: #161b22; --border: #30363d; --text: #c9d1d9;
+    --muted: #8b949e; --accent: #58a6ff; --user: #7ee787; --asst: #79c0ff;
+    --tool: #d2a8ff; --warn: #e3b341; --err: #ff7b72; --ok: #3fb950;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: var(--bg); color: var(--text); font: 13px/1.5 ui-monospace,
+    SFMono-Regular, Menlo, Consolas, monospace; display: flex; flex-direction: column;
+  }
+  header {
+    display: flex; align-items: center; gap: 12px; padding: 10px 16px;
+    border-bottom: 1px solid var(--border); background: var(--panel);
+  }
+  header h1 { font-size: 14px; margin: 0; font-weight: 600; }
+  header h1 small { color: var(--muted); font-weight: 400; }
+  .status { display: flex; align-items: center; gap: 6px; margin-left: auto; color: var(--muted); }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); }
+  .dot.on { background: var(--ok); box-shadow: 0 0 6px var(--ok); }
+  .dot.off { background: var(--err); }
+  .tabs { display: flex; gap: 2px; padding: 0 12px; border-bottom: 1px solid var(--border); background: var(--panel); }
+  .tab {
+    padding: 8px 14px; cursor: pointer; color: var(--muted); border: none;
+    background: none; font: inherit; border-bottom: 2px solid transparent;
+  }
+  .tab:hover { color: var(--text); }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .tab .count { color: var(--muted); font-size: 11px; }
+  .toolbar { display: flex; gap: 10px; align-items: center; padding: 8px 16px; border-bottom: 1px solid var(--border); }
+  .toolbar input[type=text] {
+    flex: 1; background: var(--bg); border: 1px solid var(--border); color: var(--text);
+    padding: 5px 9px; border-radius: 6px; font: inherit;
+  }
+  .toolbar label { color: var(--muted); display: flex; gap: 5px; align-items: center; cursor: pointer; }
+  .toolbar button {
+    background: var(--bg); border: 1px solid var(--border); color: var(--text);
+    padding: 5px 10px; border-radius: 6px; cursor: pointer; font: inherit;
+  }
+  .toolbar button:hover { border-color: var(--accent); color: var(--accent); }
+  #feed { flex: 1; overflow-y: auto; padding: 6px 0; }
+  .row { display: flex; gap: 10px; padding: 2px 16px; white-space: pre-wrap; word-break: break-word; }
+  .row:hover { background: #ffffff08; }
+  .row .t { color: var(--muted); flex: 0 0 92px; }
+  .row .tag { flex: 0 0 84px; font-weight: 600; }
+  .row .body { flex: 1; }
+  .row .who { color: var(--muted); }
+  .k-log .tag { color: var(--muted); }
+  .k-latency .tag { color: var(--accent); }
+  .k-transcript .tag { color: var(--user); }
+  .k-tool .tag { color: var(--tool); }
+  .lvl-WARNING .body, .lvl-WARNING .tag { color: var(--warn); }
+  .lvl-ERROR .body, .lvl-ERROR .tag, .lvl-CRITICAL .body { color: var(--err); }
+  .role-user .body { color: var(--user); }
+  .role-assistant .body { color: var(--asst); }
+  .role-event .body { color: var(--muted); font-style: italic; }
+  .ms { color: var(--warn); font-weight: 600; }
+  .empty { color: var(--muted); padding: 30px 16px; text-align: center; }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+  <header>
+    <h1>AI Receptionist <small>· live monitor</small></h1>
+    <div class="status"><span id="dot" class="dot"></span><span id="conn">connecting…</span></div>
+  </header>
+
+  <div class="tabs" id="tabs">
+    <button class="tab active" data-kind="all">All <span class="count" id="c-all">0</span></button>
+    <button class="tab" data-kind="latency">Latency <span class="count" id="c-latency">0</span></button>
+    <button class="tab" data-kind="transcript">Transcript <span class="count" id="c-transcript">0</span></button>
+    <button class="tab" data-kind="tool">Tools <span class="count" id="c-tool">0</span></button>
+    <button class="tab" data-kind="log">Logs <span class="count" id="c-log">0</span></button>
+  </div>
+
+  <div class="toolbar">
+    <input type="text" id="filter" placeholder="filter text… (e.g. TTFB, availability, ERROR)" />
+    <label><input type="checkbox" id="follow" checked /> follow</label>
+    <button id="clear">clear</button>
+  </div>
+
+  <div id="feed"><div class="empty">Waiting for events… start a call at
+    <a href="/" style="color:var(--accent)">the call UI</a> and speak.</div></div>
+
+<script>
+(function () {
+  const feed = document.getElementById("feed");
+  const dot = document.getElementById("dot");
+  const conn = document.getElementById("conn");
+  const filterInput = document.getElementById("filter");
+  const followBox = document.getElementById("follow");
+  const MAX_ROWS = 3000;
+
+  let active = "all";
+  let filter = "";
+  const counts = { all: 0, latency: 0, transcript: 0, tool: 0, log: 0 };
+  let firstEvent = true;
+
+  const fmtTime = (ts) => {
+    const d = new Date(ts * 1000);
+    return d.toLocaleTimeString("en-GB") + "." + String(d.getMilliseconds()).padStart(3, "0");
+  };
+
+  function rowFor(ev) {
+    const row = document.createElement("div");
+    row.className = "row k-" + ev.kind;
+    row.dataset.kind = ev.kind;
+    let tag = ev.kind, body = "", extraClass = "", search = "";
+
+    if (ev.kind === "log") {
+      tag = ev.level || "LOG";
+      extraClass = "lvl-" + (ev.level || "INFO");
+      body = `<span class="who">${ev.module || ""}</span>  ${esc(ev.text)}`;
+      search = (ev.level || "") + " " + (ev.text || "") + " " + (ev.module || "");
+    } else if (ev.kind === "latency") {
+      tag = ev.metric;
+      const ms = ev.ms != null ? `<span class="ms">${ev.ms} ms</span>` : "";
+      const parts = [ev.processor, ms, ev.model || "", ev.detail || ""].filter(Boolean);
+      body = parts.join("  ");
+      search = ev.metric + " " + (ev.processor || "") + " " + (ev.detail || "") + " " + (ev.ms || "");
+    } else if (ev.kind === "transcript") {
+      tag = ev.role;
+      extraClass = "role-" + ev.role;
+      const who = ev.role === "user" ? "caller" : ev.role === "assistant" ? "bot" : "";
+      body = (who ? `<span class="who">${who}:</span> ` : "") + esc(ev.text);
+      search = ev.role + " " + (ev.text || "");
+    } else if (ev.kind === "tool") {
+      tag = ev.phase === "call" ? "→ " + ev.name : "← " + ev.name;
+      body = esc(ev.detail || "");
+      search = ev.name + " " + ev.phase + " " + (ev.detail || "");
+    }
+
+    row.classList.add(...extraClass.split(" ").filter(Boolean));
+    row.dataset.search = search.toLowerCase();
+    row.innerHTML =
+      `<span class="t">${fmtTime(ev.ts)}</span>` +
+      `<span class="tag">${esc(tag)}</span>` +
+      `<span class="body">${body}</span>`;
+    return row;
+  }
+
+  function esc(s) {
+    return String(s == null ? "" : s)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
+
+  function visible(row) {
+    if (active !== "all" && row.dataset.kind !== active) return false;
+    if (filter && !row.dataset.search.includes(filter)) return false;
+    return true;
+  }
+
+  function add(ev) {
+    if (firstEvent) { feed.innerHTML = ""; firstEvent = false; }
+    counts.all++; counts[ev.kind] = (counts[ev.kind] || 0) + 1;
+    updateCounts();
+
+    const row = rowFor(ev);
+    if (!visible(row)) row.classList.add("hidden");
+    feed.appendChild(row);
+
+    while (feed.childElementCount > MAX_ROWS) feed.removeChild(feed.firstChild);
+    if (followBox.checked) feed.scrollTop = feed.scrollHeight;
+  }
+
+  function updateCounts() {
+    for (const k of Object.keys(counts))
+      document.getElementById("c-" + k).textContent = counts[k];
+  }
+
+  function reflow() {
+    for (const row of feed.children) {
+      if (!row.dataset) continue;
+      row.classList.toggle("hidden", !visible(row));
+    }
+    if (followBox.checked) feed.scrollTop = feed.scrollHeight;
+  }
+
+  // Tabs
+  document.getElementById("tabs").addEventListener("click", (e) => {
+    const tab = e.target.closest(".tab"); if (!tab) return;
+    document.querySelectorAll(".tab").forEach((t) => t.classList.remove("active"));
+    tab.classList.add("active");
+    active = tab.dataset.kind; reflow();
+  });
+  filterInput.addEventListener("input", () => { filter = filterInput.value.toLowerCase().trim(); reflow(); });
+  document.getElementById("clear").addEventListener("click", () => {
+    feed.innerHTML = ""; for (const k in counts) counts[k] = 0; updateCounts();
+  });
+
+  // SSE — forward the ?token= from this page's URL (prod auth) if present.
+  function connect() {
+    const token = new URLSearchParams(location.search).get("token");
+    const url = "/monitor/stream" + (token ? "?token=" + encodeURIComponent(token) : "");
+    const es = new EventSource(url);
+    es.onopen = () => { dot.className = "dot on"; conn.textContent = "connected"; };
+    es.onerror = () => { dot.className = "dot off"; conn.textContent = "reconnecting…"; };
+    es.onmessage = (m) => { try { add(JSON.parse(m.data)); } catch (_) {} };
+  }
+  connect();
+})();
+</script>
+</body>
+</html>

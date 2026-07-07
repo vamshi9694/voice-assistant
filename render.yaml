@@ -1,0 +1,51 @@
+# Render Blueprint for the AI receptionist (hosted stack).
+# Deploy: push this repo to GitHub → Render dashboard → New → Blueprint →
+# pick the repo. Render reads this file, then prompts for the secret values
+# (the ones marked sync:false). No card needed on the free plan.
+#
+# NOTE on plans:
+#   free    — no card, but SPINS DOWN after ~15 min idle (first call after idle
+#             waits ~50s while it wakes) and storage is ephemeral. Fine to test.
+#   starter — ~$7/mo, always-on, no cold starts (needs a card). Use for a real
+#             line: change `plan: free` to `plan: starter`.
+services:
+  - type: web
+    name: receptionist-voice
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    region: virginia          # us-east, close to OpenAI/Deepgram/Cartesia
+    healthCheckPath: /status
+    autoDeploy: true
+    envVars:
+      # --- non-secret config ---
+      - key: STACK
+        value: hosted
+      - key: SMART_TURN
+        value: "off"
+      - key: BUSINESS_SLUG
+        value: luigis-carlton
+      - key: CONTROL_PLANE_URL
+        value: http://127.0.0.1:8080
+      - key: DATABASE_URL
+        value: sqlite:////data/receptionist.db
+      # PUBLIC_HOST is derived at runtime from RENDER_EXTERNAL_HOSTNAME (start.sh)
+      - key: OPENAI_MODEL
+        value: gpt-4o-mini
+      # --- secrets: Render prompts for these on first deploy (never in git) ---
+      - key: DEEPGRAM_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: CARTESIA_API_KEY
+        sync: false
+      - key: CARTESIA_VOICE_ID
+        sync: false
+      - key: TWILIO_ACCOUNT_SID
+        sync: false
+      - key: TWILIO_AUTH_TOKEN
+        sync: false
+      - key: TWILIO_FROM_NUMBER
+        sync: false
+      - key: MONITOR_TOKEN
+        sync: false
