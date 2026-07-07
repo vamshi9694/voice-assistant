@@ -140,6 +140,20 @@ def transport_audio_params() -> dict:
     """
     params = dict(audio_in_enabled=True, audio_out_enabled=True)
 
+    # Input denoising (Krisp-style): RNNoise cleans background noise off the
+    # CALLER's audio before STT — cuts TV/chatter/echo so the bot mishears less.
+    # Off by default; enable with DENOISE=on. Guarded so a missing dep can never
+    # break a call — it just runs without denoise.
+    if os.getenv("DENOISE", "off").lower() != "off":
+        try:
+            import pyrnnoise  # noqa: F401  (presence check)
+            from pipecat.audio.filters.rnnoise_filter import RNNoiseFilter
+
+            params["audio_in_filter"] = RNNoiseFilter()
+            logger.info("Input denoising ON (RNNoise)")
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"DENOISE requested but unavailable ({type(e).__name__}); running without it")
+
     ambiance = os.getenv("AMBIANCE_FILE", "")
     if ambiance:
         from pipecat.audio.mixers.soundfile_mixer import SoundfileMixer

@@ -4,9 +4,10 @@
 # :8080) + the Twilio voice agent (public :7860).
 FROM python:3.12-slim
 
-# System deps: ffmpeg/libsndfile for audio, curl for the healthcheck.
+# System deps: ffmpeg/libsndfile for audio, curl for the healthcheck,
+# build-essential so optional native wheels (pyrnnoise denoiser) can compile.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      ffmpeg libsndfile1 curl ca-certificates \
+      ffmpeg libsndfile1 curl ca-certificates build-essential \
     && rm -rf /var/lib/apt/lists/*
 
 ENV PYTHONUNBUFFERED=1 \
@@ -22,7 +23,8 @@ WORKDIR /app
 # Control-plane deps first (best layer caching), then the hosted pipecat extras.
 COPY requirements-hosted.txt ./
 RUN pip install -r requirements-hosted.txt \
- && pip install "pipecat-ai[webrtc,silero,deepgram,openai,cartesia,runner]==1.5.0"
+ && pip install "pipecat-ai[webrtc,silero,deepgram,openai,cartesia,runner]==1.5.0" \
+ && (pip install pyrnnoise || echo "pyrnnoise unavailable — DENOISE will no-op")
 
 COPY . .
 RUN chmod +x start.sh && mkdir -p /data
