@@ -110,12 +110,27 @@ search_knowledge_schema = FunctionSchema(
     required=["query"],
 )
 
+transfer_call_schema = FunctionSchema(
+    name="transfer_call",
+    description=(
+        "Transfer the caller to a human at the restaurant. Use ONLY when the "
+        "caller explicitly asks for a person/manager, or for something you truly "
+        "cannot handle. First TELL the caller you're connecting them, THEN call "
+        "this. If it returns transferred=false, apologize and take a message instead."
+    ),
+    properties={
+        "reason": {"type": "string", "description": "Why you're transferring (for the log)"},
+    },
+    required=["reason"],
+)
+
 tools = ToolsSchema(standard_tools=[
     check_availability_schema,
     create_reservation_schema,
     create_order_schema,
     take_message_schema,
     search_knowledge_schema,
+    transfer_call_schema,
 ])
 
 # ------------------------------ handlers ------------------------------
@@ -195,6 +210,14 @@ def make_handlers(slug: str, call_id: str):
         })
         await params.result_callback(result)
 
+    async def transfer_call(params: FunctionCallParams):
+        # call_id IS the Twilio CallSid for phone calls; the control plane uses
+        # it to redirect the live call to the tenant's human line.
+        result = await _post(f"/agent/{slug}/transfer", {
+            "call_id": call_id, "reason": params.arguments.get("reason", ""),
+        })
+        await params.result_callback(result)
+
     async def report_call(
         outcome: str, summary: str, transcript: str,
         caller_phone: str = "", called_number: str = "", language: str = "",
@@ -213,5 +236,6 @@ def make_handlers(slug: str, call_id: str):
         "create_order": create_order,
         "take_message": take_message,
         "search_knowledge": search_knowledge,
+        "transfer_call": transfer_call,
         "_report_call": report_call,
     }

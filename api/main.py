@@ -7,11 +7,12 @@ Two audiences:
 
 Run:  uvicorn api.main:app --reload --port 8080
 """
+import json
 import os
 from contextlib import asynccontextmanager
 from datetime import date as date_t, datetime, time as time_t, timedelta
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException
 from pydantic import BaseModel
 from sqlmodel import Session, SQLModel, create_engine, select
 
@@ -43,9 +44,36 @@ DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./receptionist.db")
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False} if "sqlite" in DATABASE_URL else {})
 
 
+def _migrate_sqlite() -> None:
+    """Idempotently add columns introduced after a table was first created
+    (SQLite's create_all won't alter existing tables). Safe to run every boot."""
+    adds = {
+        "callrecord": [
+            ("success", "BOOLEAN"),
+            ("sentiment", "VARCHAR DEFAULT ''"),
+            ("analysis", "VARCHAR DEFAULT '{}'"),
+        ],
+    }
+    from sqlalchemy import text
+    with engine.begin() as conn:
+        for table, cols in adds.items():
+            try:
+                existing = {r[1] for r in conn.execute(text(f"PRAGMA table_info({table})"))}
+            except Exception:
+                continue
+            for name, ddl in cols:
+                if name not in existing:
+                    try:
+                        conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}"))
+                    except Exception as e:  # noqa: BLE001
+                        print(f"[migrate] {table}.{name}: {e}")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     SQLModel.metadata.create_all(engine)
+    if "sqlite" in DATABASE_URL:
+        _migrate_sqlite()
     yield
 
 
@@ -254,9 +282,38 @@ class CallReport(BaseModel):
     transcript: str = ""
 
 
+async def _analyze_and_store(row_id: int, transcript: str) -> None:
+    """Phase D: background LLM analysis → update the CallRecord. Never raises."""
+    from .analysis import analyze_call
+    data = await analyze_call(transcript)
+    if not data:
+        return
+    try:
+        with Session(engine) as s:
+            row = s.get(CallRecord, row_id)
+            if not row:
+                return
+            if data.get("summary"):
+                row.summary = data["summary"]
+            if data.get("outcome"):
+                try:
+                    row.outcome = CallOutcome(data["outcome"])
+                except ValueError:
+                    pass
+            row.success = data.get("success")
+            row.sentiment = data.get("sentiment", "")
+            row.analysis = json.dumps(data)
+            s.add(row)
+            s.commit()
+    except Exception as e:  # noqa: BLE001
+        print(f"[call analysis store failed] {type(e).__name__}: {e}")
+
+
 @app.post("/agent/{slug}/calls")
-def report_call(slug: str, c: CallReport, session: Session = Depends(db)):
-    """Called by the agent at call end (fire-and-forget; never blocks audio)."""
+def report_call(slug: str, c: CallReport, background: BackgroundTasks,
+                session: Session = Depends(db)):
+    """Called by the agent at call end (fire-and-forget; never blocks audio).
+    Saves the record immediately, then analyzes the transcript in the background."""
     biz = get_business(session, slug)
     row = CallRecord(
         business_id=biz.id, call_id=c.call_id, caller_phone=c.caller_phone,
@@ -266,7 +323,49 @@ def report_call(slug: str, c: CallReport, session: Session = Depends(db)):
     )
     session.add(row)
     session.commit()
+    session.refresh(row)
+    background.add_task(_analyze_and_store, row.id, c.transcript)
     return {"ok": True}
+
+
+class TransferReq(BaseModel):
+    call_id: str            # Twilio CallSid of the live call
+    reason: str = ""
+
+
+@app.post("/agent/{slug}/transfer")
+def transfer_call(slug: str, t: TransferReq, session: Session = Depends(db)):
+    """Phase E — warm transfer: redirect the LIVE Twilio call to the tenant's
+    human line (manager → forwarding → owner). Returns a structured result the
+    agent can speak around (so it can fall back to taking a message)."""
+    biz = get_business(session, slug)
+    number = (biz.manager_phone or biz.phone_forward_to or biz.owner_mobile or "").strip()
+    if not number:
+        return {"transferred": False, "reason": "no transfer number configured"}
+
+    sid, token = os.getenv("TWILIO_ACCOUNT_SID"), os.getenv("TWILIO_AUTH_TOKEN")
+    if not (sid and token and t.call_id):
+        return {"transferred": False, "reason": "twilio not configured"}
+
+    from xml.sax.saxutils import escape
+    twiml = (
+        "<?xml version='1.0' encoding='UTF-8'?><Response>"
+        "<Say>Connecting you now, one moment.</Say>"
+        f"<Dial>{escape(number)}</Dial></Response>"
+    )
+    try:
+        import httpx
+        r = httpx.post(
+            f"https://api.twilio.com/2010-04-01/Accounts/{sid}/Calls/{t.call_id}.json",
+            auth=(sid, token), data={"Twiml": twiml}, timeout=10.0,
+        )
+        ok = r.status_code in (200, 201)
+        if ok:
+            print(f"[{t.call_id}] transferred to {number} ({t.reason})")
+            return {"transferred": True, "to": number}
+        return {"transferred": False, "reason": f"twilio {r.status_code}"}
+    except Exception as e:  # noqa: BLE001
+        return {"transferred": False, "reason": f"twilio error: {type(e).__name__}"}
 
 
 # =========================== owner-facing ===========================

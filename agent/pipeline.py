@@ -252,17 +252,40 @@ async def build_call_task(
     user_params = LLMUserAggregatorParams(
         vad_analyzer=SileroVADAnalyzer(params=VADParams(stop_secs=0.4)),
     )
+
+    # Phase A — smart barge-in: while the bot is speaking, require BARGEIN_MIN_WORDS
+    # spoken words before the caller can interrupt, so brief "okay/yeah/mm-hm"
+    # don't cut it off (real interruptions like "stop/wait/no" clear the bar).
+    # The threshold applies ONLY during bot speech — short answers ("yes") still
+    # register instantly. 0 = off (current behaviour, untouched).
+    bargein = int(os.getenv("BARGEIN_MIN_WORDS", "0"))
+    start_strats = None
+    if bargein > 0:
+        from pipecat.turns.user_start.min_words_user_turn_start_strategy import (
+            MinWordsUserTurnStartStrategy,
+        )
+        start_strats = [MinWordsUserTurnStartStrategy(min_words=bargein)]
+        logger.info(f"Smart barge-in ON: min_words={bargein} (to interrupt the bot)")
+
+    stop_strats = None
     if SMART_TURN != "off":
-        # Imported lazily so the hosted image can skip torch + the model download.
         from pipecat.audio.turn.smart_turn.local_smart_turn_v3 import LocalSmartTurnAnalyzerV3
         from pipecat.turns.user_stop import TurnAnalyzerUserTurnStopStrategy
-        from pipecat.turns.user_turn_strategies import UserTurnStrategies
 
-        user_params.user_turn_strategies = UserTurnStrategies(
-            stop=[TurnAnalyzerUserTurnStopStrategy(turn_analyzer=LocalSmartTurnAnalyzerV3())],
-        )
+        stop_strats = [TurnAnalyzerUserTurnStopStrategy(turn_analyzer=LocalSmartTurnAnalyzerV3())]
     else:
         logger.info("Smart Turn disabled (SMART_TURN=off) — using VAD + STT endpointing")
+
+    if start_strats is not None or stop_strats is not None:
+        from pipecat.turns.user_turn_strategies import (
+            UserTurnStrategies,
+            default_user_turn_start_strategies,
+            default_user_turn_stop_strategies,
+        )
+        user_params.user_turn_strategies = UserTurnStrategies(
+            start=start_strats or default_user_turn_start_strategies(),
+            stop=stop_strats or default_user_turn_stop_strategies(),
+        )
 
     aggregators = LLMContextAggregatorPair(context, user_params=user_params)
 
@@ -276,7 +299,9 @@ async def build_call_task(
         logger.info("Backchannel ON (experimental)")
     if os.getenv("FILLER", "off").lower() != "off":
         from .naturalness import ThinkingFiller
-        extras.append(ThinkingFiller())
+        # REQUEST_DELAYED_SECS>0 adds a "still working..." line if a tool runs
+        # longer than that many seconds (Phase C). 0 = just the instant filler.
+        extras.append(ThinkingFiller(delay_secs=float(os.getenv("REQUEST_DELAYED_SECS", "0"))))
         logger.info("Thinking filler ON")
 
     pipeline = Pipeline([
@@ -290,6 +315,16 @@ async def build_call_task(
         aggregators.assistant(),      # assistant turn -> context
     ])
 
+    # Phase B — idle/silence handling. If the caller goes quiet for
+    # IDLE_PROMPT_SECS, the pipeline fires on_idle_timeout: first time we ask
+    # "are you still there?", second time we say a friendly goodbye and end the
+    # call (instead of leaving a dead line open). 0 = off.
+    idle_secs = int(os.getenv("IDLE_PROMPT_SECS", "0"))
+    idle_kwargs = (
+        dict(idle_timeout_secs=float(idle_secs), cancel_on_idle_timeout=False)
+        if idle_secs > 0 else {}
+    )
+
     qa = QAObserver(slug, call_id)
     task = PipelineTask(
         pipeline,
@@ -300,7 +335,26 @@ async def build_call_task(
         # MonitorObserver feeds the live /monitor page; QAObserver persists
         # latency + dead-air/"hello?"/tool-failure events to the control plane.
         observers=[MonitorObserver(), qa],
+        **idle_kwargs,
     )
+
+    if idle_secs > 0:
+        from pipecat.frames.frames import EndFrame
+        _idle_state = {"n": 0}
+
+        @task.event_handler("on_idle_timeout")
+        async def _on_idle(task):
+            n = _idle_state["n"]
+            _idle_state["n"] += 1
+            if n == 0:
+                logger.info(f"[{call_id}] idle -> 'are you still there?'")
+                await task.queue_frames([TTSSpeakFrame("Sorry, are you still there?")])
+            else:
+                logger.info(f"[{call_id}] idle again -> ending call")
+                await task.queue_frames([
+                    TTSSpeakFrame("I'll let you go for now — thanks for calling, goodbye!"),
+                    EndFrame(),
+                ])
 
     # Speak the greeting DIRECTLY via TTS on connect — no LLM round-trip.
     # (The old LLMRunFrame path cost ~1.5s of first-token latency just to read

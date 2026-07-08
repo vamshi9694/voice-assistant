@@ -326,3 +326,7 @@ class CallRecord(SQLModel, table=True):
     outcome: Optional[CallOutcome] = None
     summary: str = ""                                    # one-line LLM summary
     transcript: str = ""                                 # appended turn by turn
+    # Phase D — end-of-call analysis (filled by a background LLM pass):
+    success: Optional[bool] = None                       # did the caller get what they needed
+    sentiment: str = ""                                  # positive | neutral | negative
+    analysis: str = "{}"                                 # JSON: intent + extracted key details

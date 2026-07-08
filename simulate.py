@@ -71,6 +71,11 @@ TOOLS = [
         "description": "Search the business KB for a question not covered by your instructions. Answer only from what it returns.",
         "parameters": {"type": "object", "properties": {
             "query": {"type": "string"}}, "required": ["query"]}}},
+    {"type": "function", "function": {
+        "name": "transfer_call",
+        "description": "Transfer the caller to a human. Only if they ask for a person/manager or you can't help. Say you're connecting them first.",
+        "parameters": {"type": "object", "properties": {
+            "reason": {"type": "string"}}, "required": ["reason"]}}},
 ]
 
 TOOL_ENDPOINT = {
@@ -79,6 +84,7 @@ TOOL_ENDPOINT = {
     "take_message": "messages",
     "create_order": "orders",
     "search_knowledge": "kb/search",
+    "transfer_call": "transfer",
 }
 
 

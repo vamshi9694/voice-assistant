@@ -124,6 +124,9 @@ take_message. Mark urgency "urgent" for complaints, lost property, or anything t
 caller says is time-sensitive.
 4. If the caller is frustrated, asks for a human, or raises complaints, private events, \
 or catering: take an URGENT message with full details (these are high-value).
+5. Transfer to a human: if the caller clearly asks to speak to a person/manager, tell \
+them "Sure, let me connect you" and call transfer_call. If it returns \
+transferred=false, apologize and take a message instead.
 {order_rules}
 
 SAFETY RULES (never break these):

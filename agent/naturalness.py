@@ -16,11 +16,13 @@ the real conversation, so they're low blast-radius.
 """
 from __future__ import annotations
 
+import asyncio
 import random
 
 from pipecat.frames.frames import (
     Frame,
     FunctionCallInProgressFrame,
+    FunctionCallResultFrame,
     TTSSpeakFrame,
     UserStoppedSpeakingFrame,
 )
@@ -38,16 +40,36 @@ FILLER_PHRASES = [
 BACKCHANNEL_PHRASES = ["Mm-hm.", "Right.", "Got it.", "Okay.", "Sure."]
 
 
+DELAYED_PHRASES = ["Still checking, one moment...", "Just a moment more...", "Almost there..."]
+
+
 class ThinkingFiller(FrameProcessor):
     """Speak a filler the instant a tool call begins (covers the lookup wait).
 
     Placed between the LLM and TTS. On a FunctionCallInProgressFrame it pushes a
     short TTSSpeakFrame downstream, then forwards the original frame untouched.
+
+    Phase C — request-delayed: if the tool hasn't returned within `delay_secs`,
+    it speaks a "still working" line so a slow lookup never goes silent (the
+    Vapi Request-Delayed message). Cancelled the moment the result arrives.
     """
 
-    def __init__(self, phrases: list[str] | None = None) -> None:
+    def __init__(self, phrases: list[str] | None = None, delay_secs: float = 0.0) -> None:
         super().__init__()
         self._phrases = phrases or FILLER_PHRASES
+        self._delay_secs = delay_secs
+        self._pending: dict[str, "asyncio.Task"] = {}
+
+    async def _delayed_notice(self, tool_call_id: str) -> None:
+        try:
+            await asyncio.sleep(self._delay_secs)
+            await self.push_frame(
+                TTSSpeakFrame(random.choice(DELAYED_PHRASES)), FrameDirection.DOWNSTREAM
+            )
+        except asyncio.CancelledError:
+            pass
+        finally:
+            self._pending.pop(tool_call_id, None)
 
     async def process_frame(self, frame: Frame, direction: FrameDirection) -> None:
         await super().process_frame(frame, direction)
@@ -56,6 +78,14 @@ class ThinkingFiller(FrameProcessor):
             await self.push_frame(
                 TTSSpeakFrame(random.choice(self._phrases)), FrameDirection.DOWNSTREAM
             )
+            if self._delay_secs > 0:
+                tcid = getattr(frame, "tool_call_id", "") or "_"
+                self._pending[tcid] = asyncio.create_task(self._delayed_notice(tcid))
+        elif isinstance(frame, FunctionCallResultFrame) and self._delay_secs > 0:
+            tcid = getattr(frame, "tool_call_id", "") or "_"
+            t = self._pending.pop(tcid, None)
+            if t is not None:
+                t.cancel()
 
         await self.push_frame(frame, direction)
 
