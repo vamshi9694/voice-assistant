@@ -109,11 +109,12 @@ def build_services(language: str = "en", voices: dict | None = None):
         tts = CartesiaTTSService(
             api_key=os.getenv("CARTESIA_API_KEY"),
             voice_id=voices.get(primary) or os.getenv("CARTESIA_VOICE_ID", ""),
-            # speed 0.95 = a touch slower than default → warmer, clearer on a
-            # phone line. Range 0.6–1.5.
+            # TTS_SPEED (default 1.05): slightly brisk & businesslike. A slower
+            # speed (<1.0) reads as sultry/"flirty" on the phone, so we lean a
+            # touch fast. Range 0.6–1.5; tune per taste without a code change.
             params=CartesiaTTSService.InputParams(
                 language=_tts_lang,
-                generation_config=GenerationConfig(speed=0.95),
+                generation_config=GenerationConfig(speed=float(os.getenv("TTS_SPEED", "1.05"))),
             ),
         )
 
