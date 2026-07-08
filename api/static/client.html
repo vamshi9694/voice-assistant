@@ -5,40 +5,47 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Restaurant Dashboard</title>
 <style>
-:root{--bg:#f6f7f9;--card:#fff;--ink:#1a202c;--mut:#64748b;--acc:#0f766e;--bad:#b91c1c;--bd:#e2e8f0}
-*{box-sizing:border-box}body{margin:0;font:14px/1.45 -apple-system,system-ui,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--ink)}
-header{display:flex;align-items:center;gap:12px;padding:10px 18px;background:var(--card);border-bottom:1px solid var(--bd)}
-header h1{font-size:16px;margin:0}header .sp{flex:1}
-nav{display:flex;gap:4px;padding:8px 14px;background:var(--card);border-bottom:1px solid var(--bd);flex-wrap:wrap}
-nav button{border:0;background:none;padding:7px 12px;border-radius:8px;cursor:pointer;font-weight:600;color:var(--mut)}
-nav button.on{background:#e6f4f2;color:var(--acc)}
-main{padding:18px;max-width:1100px;margin:0 auto}
-.card{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:16px;margin-bottom:14px}
-.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
-.stat{text-align:center}.stat b{display:block;font-size:26px}.stat span{color:var(--mut);font-size:12px}
-h2{font-size:15px;margin:0 0 10px}
-label{display:block;font-size:12px;color:var(--mut);margin:8px 0 2px}
-input,select,textarea{width:100%;padding:7px 9px;border:1px solid var(--bd);border-radius:8px;font:inherit;background:#fff}
+:root{--bg:#f4f7f6;--card:#fff;--ink:#17211d;--mut:#66736e;--acc:#0b6b55;--acc2:#c65f45;--gold:#a9792b;--blue:#3867a6;--bad:#b42318;--bd:#dce5e1;--soft:#eef6f3;--shadow:0 14px 34px rgba(19,47,38,.08)}
+*{box-sizing:border-box}body{margin:0;font:14px/1.45 -apple-system,system-ui,Segoe UI,Roboto,sans-serif;background:radial-gradient(circle at 20% -10%,#dceee8 0,#f4f7f6 32%,#f7f8f6 100%);color:var(--ink)}
+body:before{content:"";position:fixed;inset:0 0 auto;height:4px;background:linear-gradient(90deg,var(--acc),var(--acc2),var(--gold));z-index:5}
+header{display:flex;align-items:center;gap:14px;padding:16px 24px;background:rgba(255,255,255,.9);border-bottom:1px solid var(--bd);backdrop-filter:blur(16px);position:sticky;top:0;z-index:4}
+header h1{font-size:18px;margin:0;letter-spacing:0}.brand{display:flex;align-items:center;gap:10px}.brand-mark{width:34px;height:34px;border-radius:8px;background:linear-gradient(135deg,var(--acc),#103b31);box-shadow:inset 0 0 0 1px rgba(255,255,255,.35)}header .sp{flex:1}
+.subtle{color:var(--mut);font-size:12px}.status-chip{display:inline-flex;align-items:center;gap:7px;color:#134b3d;background:var(--soft);border:1px solid #d5ebe3;border-radius:999px;padding:6px 10px;font-size:12px;font-weight:700}.status-chip:before{content:"";width:7px;height:7px;border-radius:50%;background:#1ca36f}
+nav{display:flex;gap:6px;padding:10px 24px;background:rgba(255,255,255,.82);border-bottom:1px solid var(--bd);flex-wrap:wrap;position:sticky;top:67px;z-index:3;backdrop-filter:blur(16px)}
+nav button{border:1px solid transparent;background:none;padding:8px 12px;border-radius:8px;cursor:pointer;font-weight:700;color:var(--mut)}
+nav button:hover{background:#f5faf8;color:var(--ink)}nav button.on{background:#113c31;color:#fff;border-color:#113c31;box-shadow:0 8px 18px rgba(17,60,49,.16)}
+main{padding:22px 24px;max-width:1180px;margin:0 auto}
+.card{background:rgba(255,255,255,.94);border:1px solid var(--bd);border-radius:8px;padding:18px;margin-bottom:14px;box-shadow:var(--shadow)}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(168px,1fr));gap:12px}
+.stat{text-align:left;position:relative;overflow:hidden}.stat:after{content:"";position:absolute;right:-18px;top:-18px;width:68px;height:68px;border:1px solid #d9ebe5;border-radius:50%}.stat b{display:block;font-size:30px;line-height:1;margin-bottom:7px}.stat span{color:var(--mut);font-size:12px;font-weight:700;text-transform:uppercase}
+.hero{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(280px,.7fr);gap:16px;align-items:stretch}.hero-copy{background:#113c31;color:#fff;border-radius:8px;padding:24px;min-height:190px;position:relative;overflow:hidden}.hero-copy:after{content:"";position:absolute;right:20px;bottom:20px;width:120px;height:120px;border:1px solid rgba(255,255,255,.18);border-radius:50%}.eyebrow{font-size:11px;text-transform:uppercase;font-weight:800;color:#bfe8db;letter-spacing:.08em}.hero-copy h2{font-size:30px;max-width:620px;color:#fff;margin:8px 0 10px}.hero-copy p{color:#d8eee7;max-width:640px;margin:0}.signal-list{display:grid;gap:10px}.signal{border:1px solid var(--bd);border-radius:8px;padding:14px;background:#fff}.signal b{display:block;font-size:18px}.signal span{color:var(--mut);font-size:12px}
+.section-title{display:flex;align-items:end;justify-content:space-between;gap:16px;margin:10px 0 12px}.section-title h2{font-size:16px;margin:0}.section-title p{margin:0;color:var(--mut);font-size:12px}
+h2{font-size:15px;margin:0 0 12px}
+label{display:block;font-size:12px;color:var(--mut);margin:10px 0 4px;font-weight:700}
+input,select,textarea{width:100%;padding:9px 10px;border:1px solid var(--bd);border-radius:8px;font:inherit;background:#fff;color:var(--ink)}
+input:focus,select:focus,textarea:focus{outline:2px solid #b7ddd1;border-color:var(--acc)}
 textarea{min-height:60px}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:0 16px}.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:0 16px}
-button.btn{background:var(--acc);color:#fff;border:0;padding:8px 14px;border-radius:8px;font-weight:600;cursor:pointer;margin-top:10px}
+button.btn{background:var(--acc);color:#fff;border:0;padding:9px 14px;border-radius:8px;font-weight:800;cursor:pointer;margin-top:10px;box-shadow:0 8px 18px rgba(11,107,85,.18)}
 button.sm{padding:4px 9px;font-size:12px;margin:0}
-button.ghost{background:#eef2f7;color:var(--ink)}button.danger{background:var(--bad)}
+button.ghost{background:#eef2f7;color:var(--ink);box-shadow:none}button.danger{background:var(--bad);box-shadow:none}
 table{width:100%;border-collapse:collapse;font-size:13px}
-th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--bd);vertical-align:top}
-th{color:var(--mut);font-size:11px;text-transform:uppercase;letter-spacing:.04em}
+th,td{text-align:left;padding:8px 9px;border-bottom:1px solid var(--bd);vertical-align:top}
+th{color:var(--mut);font-size:11px;text-transform:uppercase;letter-spacing:.04em;background:#f7faf9}
 .pill{display:inline-block;padding:2px 8px;border-radius:99px;font-size:11px;font-weight:700;background:#eef2f7}
 .pill.ok{background:#dcfce7;color:#166534}.pill.warn{background:#fef3c7;color:#92400e}.pill.bad{background:#fee2e2;color:#991b1b}
-#login{max-width:340px;margin:10vh auto}
+#login{max-width:390px;margin:10vh auto}
 .msg{font-size:12px;margin-top:8px;color:var(--acc)}.msg.err{color:var(--bad)}
 details{margin-top:6px}pre{white-space:pre-wrap;font-size:12px;background:#f8fafc;padding:8px;border-radius:8px}
 .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .chk{display:flex;gap:6px;align-items:center;font-size:13px;color:var(--ink);margin-top:8px}
 .chk input{width:auto}
+@media(max-width:760px){header{padding:14px 16px;align-items:flex-start}nav{top:63px;padding:9px 16px}main{padding:16px}.hero{grid-template-columns:1fr}.hero-copy h2{font-size:24px}.grid2,.grid3{grid-template-columns:1fr}table{display:block;overflow-x:auto;white-space:nowrap}}
 </style>
 </head>
 <body>
 <div id="login" class="card" style="display:none">
+  <div class="eyebrow">AI Superhost Console</div>
   <h2>Restaurant login</h2>
   <label>Email</label><input id="li_email" autocomplete="username">
   <label>Password</label><input id="li_pw" type="password" autocomplete="current-password">
@@ -47,7 +54,7 @@ details{margin-top:6px}pre{white-space:pre-wrap;font-size:12px;background:#f8faf
 </div>
 
 <div id="shell" style="display:none">
-<header><h1 id="bizname">Dashboard</h1><span class="sp"></span><span id="who" style="color:var(--mut);font-size:12px"></span><button class="btn sm ghost" onclick="logout()">Log out</button></header>
+<header><div class="brand"><span class="brand-mark"></span><div><h1 id="bizname">Dashboard</h1><div class="subtle">Restaurant phone answering</div></div></div><span class="sp"></span><span id="who" class="status-chip"></span><button class="btn sm ghost" onclick="logout()">Log out</button></header>
 <nav id="tabs"></nav>
 <main id="main"></main>
 </div>
@@ -93,13 +100,26 @@ const render={};
 /* ---------------- Overview ---------------- */
 render["Overview"]=async()=>{
   const o=await api(`/owner/${SLUG}/overview`);
-  setMain(`<div class="card"><div class="cards">
-    <div class="stat"><b>${o.calls_24h}</b><span>calls (24h)</span></div>
-    <div class="stat"><b>${o.bookings_today}</b><span>bookings today</span></div>
-    <div class="stat"><b>${o.upcoming_bookings}</b><span>upcoming bookings</span></div>
-    <div class="stat"><b>${o.messages_total}</b><span>messages</span></div>
-    <div class="stat"><b>${o.messages_urgent}</b><span>urgent ⚠️</span></div>
-  </div></div>`);
+  const urgentLine=o.messages_urgent?`${o.messages_urgent} urgent guest follow-up${o.messages_urgent===1?"":"s"} waiting`:"No urgent guest follow-ups";
+  setMain(`<div class="hero">
+    <section class="hero-copy">
+      <div class="eyebrow">Tonight's phone host</div>
+      <h2>${esc(o.business)} is answering every call with context.</h2>
+      <p>Track reservations, guest messages, missed opportunities, and escalation moments from one calm service console.</p>
+    </section>
+    <aside class="signal-list">
+      <div class="signal"><span class="pill ok">Live</span><b>${o.calls_24h} calls handled</b><span>Last 24 hours</span></div>
+      <div class="signal"><span class="pill ${o.messages_urgent?"bad":"ok"}">${o.messages_urgent?"Needs review":"Clear"}</span><b>${urgentLine}</b><span>Smart alerts</span></div>
+    </aside>
+  </div>
+  <div class="section-title"><h2>Guest demand</h2><p>Reservations, messages, and call volume from the local control plane.</p></div>
+  <div class="cards">
+    <div class="card stat"><b>${o.calls_24h}</b><span>calls in 24h</span></div>
+    <div class="card stat"><b>${o.bookings_today}</b><span>bookings today</span></div>
+    <div class="card stat"><b>${o.upcoming_bookings}</b><span>upcoming bookings</span></div>
+    <div class="card stat"><b>${o.messages_total}</b><span>guest messages</span></div>
+    <div class="card stat"><b>${o.messages_urgent}</b><span>smart alerts</span></div>
+  </div>`);
 };
 
 /* ---------------- Settings ---------------- */

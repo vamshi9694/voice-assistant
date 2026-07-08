@@ -5,41 +5,46 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Platform Admin</title>
 <style>
-:root{--bg:#f6f7f9;--card:#fff;--ink:#1a202c;--mut:#64748b;--acc:#4338ca;--bad:#b91c1c;--bd:#e2e8f0}
-*{box-sizing:border-box}body{margin:0;font:14px/1.45 -apple-system,system-ui,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--ink)}
-header{display:flex;align-items:center;gap:12px;padding:10px 18px;background:var(--card);border-bottom:1px solid var(--bd)}
-header h1{font-size:16px;margin:0}header .sp{flex:1}
-nav{display:flex;gap:4px;padding:8px 14px;background:var(--card);border-bottom:1px solid var(--bd)}
-nav button{border:0;background:none;padding:7px 12px;border-radius:8px;cursor:pointer;font-weight:600;color:var(--mut)}
-nav button.on{background:#eef2ff;color:var(--acc)}
-main{padding:18px;max-width:1100px;margin:0 auto}
-.card{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:16px;margin-bottom:14px}
-h2{font-size:15px;margin:0 0 10px}
-label{display:block;font-size:12px;color:var(--mut);margin:8px 0 2px}
-input,select{padding:7px 9px;border:1px solid var(--bd);border-radius:8px;font:inherit;background:#fff}
-button.btn{background:var(--acc);color:#fff;border:0;padding:8px 14px;border-radius:8px;font-weight:600;cursor:pointer}
-button.sm{padding:4px 9px;font-size:12px}button.ghost{background:#eef2f7;color:var(--ink)}button.danger{background:var(--bad)}
+:root{--bg:#f4f7f6;--card:#fff;--ink:#17211d;--mut:#66736e;--acc:#0b6b55;--acc2:#c65f45;--gold:#a9792b;--blue:#3867a6;--bad:#b42318;--bd:#dce5e1;--soft:#eef6f3;--shadow:0 14px 34px rgba(19,47,38,.08)}
+*{box-sizing:border-box}body{margin:0;font:14px/1.45 -apple-system,system-ui,Segoe UI,Roboto,sans-serif;background:radial-gradient(circle at 18% -10%,#dceee8 0,#f4f7f6 32%,#f7f8f6 100%);color:var(--ink)}
+body:before{content:"";position:fixed;inset:0 0 auto;height:4px;background:linear-gradient(90deg,var(--acc),var(--blue),var(--acc2));z-index:5}
+header{display:flex;align-items:center;gap:14px;padding:16px 24px;background:rgba(255,255,255,.9);border-bottom:1px solid var(--bd);backdrop-filter:blur(16px);position:sticky;top:0;z-index:4}
+header h1{font-size:18px;margin:0}header .sp{flex:1}.brand{display:flex;align-items:center;gap:10px}.brand-mark{width:34px;height:34px;border-radius:8px;background:linear-gradient(135deg,var(--blue),#143949);box-shadow:inset 0 0 0 1px rgba(255,255,255,.35)}.subtle{font-size:12px;color:var(--mut)}
+nav{display:flex;gap:6px;padding:10px 24px;background:rgba(255,255,255,.82);border-bottom:1px solid var(--bd);flex-wrap:wrap;position:sticky;top:67px;z-index:3;backdrop-filter:blur(16px)}
+nav button{border:1px solid transparent;background:none;padding:8px 12px;border-radius:8px;cursor:pointer;font-weight:700;color:var(--mut)}
+nav button:hover{background:#f5faf8;color:var(--ink)}nav button.on{background:#143949;color:#fff;border-color:#143949;box-shadow:0 8px 18px rgba(20,57,73,.16)}
+main{padding:22px 24px;max-width:1180px;margin:0 auto}
+.card{background:rgba(255,255,255,.94);border:1px solid var(--bd);border-radius:8px;padding:18px;margin-bottom:14px;box-shadow:var(--shadow)}
+.hero{background:#143949;color:#fff;border-radius:8px;padding:24px;margin-bottom:14px;display:flex;align-items:end;justify-content:space-between;gap:18px;overflow:hidden;position:relative}.hero:after{content:"";position:absolute;right:24px;bottom:18px;width:120px;height:120px;border:1px solid rgba(255,255,255,.16);border-radius:50%}.hero h2{font-size:30px;color:#fff;margin:6px 0 8px}.hero p{color:#dcecf1;margin:0;max-width:620px}.eyebrow{font-size:11px;text-transform:uppercase;font-weight:800;color:#bde5ef;letter-spacing:.08em}
+h2{font-size:15px;margin:0 0 12px}
+label{display:block;font-size:12px;color:var(--mut);margin:10px 0 4px;font-weight:700}
+input,select{padding:9px 10px;border:1px solid var(--bd);border-radius:8px;font:inherit;background:#fff;color:var(--ink)}
+input:focus,select:focus{outline:2px solid #bddce6;border-color:var(--blue)}
+button.btn{background:var(--blue);color:#fff;border:0;padding:9px 14px;border-radius:8px;font-weight:800;cursor:pointer;box-shadow:0 8px 18px rgba(56,103,166,.18)}
+button.sm{padding:4px 9px;font-size:12px}button.ghost{background:#eef2f7;color:var(--ink);box-shadow:none}button.danger{background:var(--bad);box-shadow:none}
 table{width:100%;border-collapse:collapse;font-size:13px}
-th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--bd)}
-th{color:var(--mut);font-size:11px;text-transform:uppercase}
+th,td{text-align:left;padding:8px 9px;border-bottom:1px solid var(--bd)}
+th{color:var(--mut);font-size:11px;text-transform:uppercase;background:#f7faf9;letter-spacing:.04em}
 .pill{display:inline-block;padding:2px 8px;border-radius:99px;font-size:11px;font-weight:700;background:#eef2f7}
 .pill.ok{background:#dcfce7;color:#166534}.pill.warn{background:#fef3c7;color:#92400e}.pill.bad{background:#fee2e2;color:#991b1b}
-#login{max-width:340px;margin:10vh auto}#login input{width:100%}
+#login{max-width:390px;margin:10vh auto}#login input{width:100%}
 .msg{font-size:12px;margin-top:8px;color:var(--acc)}.msg.err{color:var(--bad)}
 .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px}
-.stat b{font-size:20px}
+.stat{position:relative;overflow:hidden}.stat:after{content:"";position:absolute;right:-18px;top:-18px;width:68px;height:68px;border:1px solid #d9ebe5;border-radius:50%}.stat b{font-size:22px;display:block}.stat span{display:block;color:var(--mut);font-size:12px;font-weight:700;text-transform:uppercase;margin-top:6px}.metric-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(132px,1fr));gap:8px;margin-top:10px}.metric{background:#f7faf9;border:1px solid var(--bd);border-radius:8px;padding:10px}.metric b{font-size:18px}.metric span{display:block;color:var(--mut);font-size:11px;text-transform:uppercase;font-weight:800}
+@media(max-width:760px){header{padding:14px 16px;align-items:flex-start}nav{top:63px;padding:9px 16px}main{padding:16px}.hero{display:block}.hero h2{font-size:24px}table{display:block;overflow-x:auto;white-space:nowrap}}
 </style>
 </head>
 <body>
 <div id="login" class="card" style="display:none">
+  <div class="eyebrow">Voice AI Operations</div>
   <h2>Platform admin login</h2>
   <label>Email</label><input id="li_email"><label>Password</label><input id="li_pw" type="password">
   <button class="btn" style="margin-top:10px" onclick="doLogin()">Sign in</button><div id="li_msg" class="msg err"></div>
 </div>
 
 <div id="shell" style="display:none">
-<header><h1>Platform Admin</h1><span class="sp"></span><button class="btn sm ghost" onclick="logout()">Log out</button></header>
+<header><div class="brand"><span class="brand-mark"></span><div><h1>Platform Admin</h1><div class="subtle">Tenant routing and call quality</div></div></div><span class="sp"></span><button class="btn sm ghost" onclick="logout()">Log out</button></header>
 <nav id="tabs"></nav><main id="main"></main>
 </div>
 
@@ -126,9 +131,19 @@ render["Health"]=async()=>{
   const ts=await api("/admin/tenants");
   const stats=await Promise.all(ts.map(t=>api(`/owner/${t.slug}/overview`).catch(()=>null)));
   let metrics=null; try{metrics=await api("/admin/metrics/summary");}catch(e){}
-  setMain(`<div class="card"><h2>Per-tenant activity</h2><div class="cards">
-  ${ts.map((t,i)=>{const s=stats[i];return `<div class="card stat"><b>${esc(t.name)}</b><br>
-    ${s?`calls 24h: <b>${s.calls_24h}</b> · bookings today: <b>${s.bookings_today}</b><br>messages: ${s.messages_total} (${s.messages_urgent} urgent)`:"unavailable"}</div>`;}).join("")}
+  const totalCalls=stats.reduce((n,s)=>n+(s?s.calls_24h:0),0);
+  const totalBookings=stats.reduce((n,s)=>n+(s?s.bookings_today:0),0);
+  const urgent=stats.reduce((n,s)=>n+(s?s.messages_urgent:0),0);
+  setMain(`<section class="hero"><div><div class="eyebrow">Network health</div><h2>${ts.length} restaurant hosts under watch.</h2><p>See which phone lines are active, where calls are turning into covers, and which tenants need staff attention.</p></div></section>
+  <div class="cards">
+    <div class="card stat"><b>${totalCalls}</b><span>calls in 24h</span></div>
+    <div class="card stat"><b>${totalBookings}</b><span>bookings today</span></div>
+    <div class="card stat"><b>${urgent}</b><span>urgent alerts</span></div>
+    <div class="card stat"><b>${ts.filter(t=>t.status==="active").length}</b><span>active tenants</span></div>
+  </div>
+  <div class="card"><h2>Per-tenant activity</h2><div class="cards">
+  ${ts.map((t,i)=>{const s=stats[i];return `<div class="stat"><b>${esc(t.name)}</b><span>${esc(t.slug)}</span>
+    ${s?`<div class="metric-grid"><div class="metric"><b>${s.calls_24h}</b><span>calls</span></div><div class="metric"><b>${s.bookings_today}</b><span>bookings</span></div><div class="metric"><b>${s.messages_total}</b><span>messages</span></div><div class="metric"><b>${s.messages_urgent}</b><span>alerts</span></div></div>`:"unavailable"}</div>`;}).join("")}
   </div></div>
   ${metrics?`<div class="card"><h2>Call quality (7 days)</h2>
     <table><tr><th>tenant</th><th>calls</th><th>avg STT ms</th><th>avg LLM ms</th><th>avg TTS ms</th><th>avg tool ms</th><th>dead air</th><th>"hello?"</th><th>tool fails</th><th>dupes</th><th>low conf</th></tr>
