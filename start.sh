@@ -21,8 +21,8 @@ fi
 echo "==> Seeding business data (idempotent)"
 python seed.py || true
 
-echo "==> Starting control plane on 127.0.0.1:8080"
-uvicorn api.main:app --host 127.0.0.1 --port 8080 &
+echo "==> Starting control plane on 0.0.0.0:8080 (reachable by the Caddy container)"
+uvicorn api.main:app --host 0.0.0.0 --port 8080 &
 CONTROL_PID=$!
 
 # If the control plane dies, take the container down so Fly restarts cleanly.

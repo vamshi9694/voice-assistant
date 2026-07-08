@@ -1,5 +1,13 @@
-# Caddy auto-provisions a free Let's Encrypt TLS cert for PUBLIC_HOST and
-# reverse-proxies everything (including the /ws WebSocket) to the app.
+# Caddy auto-provisions a free Let's Encrypt cert for PUBLIC_HOST and splits
+# traffic between the two apps in the container:
+#   - the voice AGENT (:7860): Twilio TwiML + media stream + live views
+#   - the CONTROL PLANE (:8080): dashboards, auth, admin/owner/agent APIs
 {$PUBLIC_HOST} {
-	reverse_proxy app:7860
+	# Agent-owned paths (voice pipeline + live ops views).
+	@agent path /voice /voice/* /ws /ws/* /monitor /monitor/* /dashboard /dashboard/* /status
+	reverse_proxy @agent app:7860
+
+	# Everything else = control plane: /app, /admin-ui, /auth/*, /admin/*,
+	# /owner/*, /agent/* (resolve/context/reservations/…), /docs, / → /app.
+	reverse_proxy app:8080
 }

@@ -19,7 +19,8 @@ services:
       PORT: "7860"
       PUBLIC_HOST: "${PUBLIC_HOST}"
     expose:
-      - "7860"
+      - "7860"     # agent: /voice, /ws, /monitor, /dashboard, /status
+      - "8080"     # control plane: /app, /admin-ui, /auth, /admin, /owner, /agent APIs
     volumes:
       - db-data:/data
     restart: unless-stopped
