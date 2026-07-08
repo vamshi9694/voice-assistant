@@ -156,8 +156,10 @@ You have already greeted the caller out loud — do not greet again."""
         return {
             "name": "collect_contact",
             "task_messages": [{"role": "system", "content":
-                "Ask for the caller's name and mobile number, ONE at a time. When you have both, "
-                "call set_contact."}],
+                "Ask for the caller's name and mobile number, ONE at a time. A US phone number "
+                "has 10 digits — if you've collected fewer than 10, don't proceed: tell them how "
+                "many you have and ask for the rest. Read the full number back digit by digit to "
+                "confirm. Only when name + all 10 digits are confirmed, call set_contact."}],
             "functions": [set_contact],
         }
 

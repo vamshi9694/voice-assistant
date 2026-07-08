@@ -1,0 +1,6 @@
+# Happy-path reservation (caller answers in sequence)
+Hi, I'd like to book a table for four people
+Friday at 7pm
+David
+six one seven, five five five, zero one four two
+yes that's right

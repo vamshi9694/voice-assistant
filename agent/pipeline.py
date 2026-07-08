@@ -96,6 +96,14 @@ def build_services(language: str = "en", voices: dict | None = None):
                 numerals=True,
                 smart_format=True,
                 language=dg_lang,
+                # Number-aware endpointing: wait ~0.3s of silence before Deepgram
+                # finalizes, so a caller pausing between digit groups ("939…404…
+                # 999") stays ONE utterance instead of being chopped into three
+                # (the main cause of mangled phone numbers). utterance_end_ms is
+                # Deepgram's end-of-speech safety net. Smart Turn still decides
+                # the actual turn, so this adds little perceived latency.
+                endpointing=int(os.getenv("DG_ENDPOINTING_MS", "300")),
+                utterance_end_ms=int(os.getenv("DG_UTTERANCE_END_MS", "1000")),
             ),
         )
         llm = OpenAILLMService(model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"))
