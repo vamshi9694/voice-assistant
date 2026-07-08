@@ -15,6 +15,8 @@ from pipecat.adapters.schemas.function_schema import FunctionSchema
 from pipecat.adapters.schemas.tools_schema import ToolsSchema
 from pipecat.services.llm_service import FunctionCallParams
 
+from .guard import normalize_phone, phone_problem
+
 CONTROL_PLANE = os.getenv("CONTROL_PLANE_URL", "http://localhost:8080")
 
 # ------------------------------ schemas ------------------------------
@@ -136,13 +138,18 @@ tools = ToolsSchema(standard_tools=[
 # ------------------------------ handlers ------------------------------
 
 
-def _clean_phone(raw: str) -> str:
-    """Keep digits (and a leading +). The caller may say a formatted number and
-    the STT returns "(665) 493-1454"; store it clean instead of rejecting."""
-    if not raw:
-        return raw
-    digits = "".join(ch for ch in raw if ch.isdigit())
-    return ("+" + digits) if raw.strip().startswith("+") else digits
+def _phone_gate(raw: str) -> dict | None:
+    """HARD GATE: mutating tools never reach the backend with a bad callback
+    number. Returns a structured error the LLM must speak around (re-ask),
+    or None when the number is valid."""
+    problem = phone_problem(raw)
+    if problem is None:
+        return None
+    return {
+        "created": False, "error": "invalid_phone", "problem": problem,
+        "instruction": "Do NOT confirm anything. Ask the caller for their full "
+                       "phone number again, then read it back digit by digit.",
+    }
 
 
 def _idem_key(call_id: str, tool: str, args: dict) -> str:
@@ -175,9 +182,13 @@ def make_handlers(slug: str, call_id: str):
         await params.result_callback(result)
 
     async def create_reservation(params: FunctionCallParams):
+        gate = _phone_gate(params.arguments.get("guest_phone", ""))
+        if gate:
+            await params.result_callback(gate)
+            return
         result = await _post(f"/agent/{slug}/reservations", {
             **params.arguments,
-            "guest_phone": _clean_phone(params.arguments.get("guest_phone", "")),
+            "guest_phone": normalize_phone(params.arguments.get("guest_phone", "")),
             "notes": params.arguments.get("notes", ""),
             "call_id": call_id,
             "idempotency_key": _idem_key(call_id, "create_reservation", params.arguments),
@@ -191,9 +202,13 @@ def make_handlers(slug: str, call_id: str):
         await params.result_callback(result)
 
     async def create_order(params: FunctionCallParams):
+        gate = _phone_gate(params.arguments.get("guest_phone", ""))
+        if gate:
+            await params.result_callback(gate)
+            return
         result = await _post(f"/agent/{slug}/orders", {
             **params.arguments,
-            "guest_phone": _clean_phone(params.arguments.get("guest_phone", "")),
+            "guest_phone": normalize_phone(params.arguments.get("guest_phone", "")),
             "notes": params.arguments.get("notes", ""),
             "call_id": call_id,
             "idempotency_key": _idem_key(call_id, "create_order", params.arguments),
@@ -201,9 +216,13 @@ def make_handlers(slug: str, call_id: str):
         await params.result_callback(result)
 
     async def take_message(params: FunctionCallParams):
+        gate = _phone_gate(params.arguments.get("caller_phone", ""))
+        if gate:
+            await params.result_callback(gate)
+            return
         result = await _post(f"/agent/{slug}/messages", {
             **params.arguments,
-            "caller_phone": _clean_phone(params.arguments.get("caller_phone", "")),
+            "caller_phone": normalize_phone(params.arguments.get("caller_phone", "")),
             "urgency": params.arguments.get("urgency", "normal"),
             "call_id": call_id,
             "idempotency_key": _idem_key(call_id, "take_message", params.arguments),

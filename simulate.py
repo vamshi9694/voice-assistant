@@ -26,6 +26,7 @@ import sys
 
 import httpx
 
+from agent import guard
 from agent.prompts import build_system_prompt
 
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
@@ -111,14 +112,60 @@ def exec_tool(base: str, slug: str, name: str, args: dict) -> dict:
         return {"error": f"control plane unreachable: {type(e).__name__}"}
 
 
-def run_turn(base: str, slug: str, messages: list, user_text: str) -> None:
+class CallChecker:
+    """Applies the acceptance criteria (agent/guard.py) to a simulated call:
+    fake claims, invalid phones sent to tools, style violations, clarification
+    loops, multi-question turns. Exit code 1 when any scenario check fails."""
+
+    def __init__(self):
+        self.tools_ok: set[str] = set()
+        self.clarify_strikes = 0
+        self.failures: list[str] = []
+
+    def on_tool(self, name: str, args: dict, result: dict):
+        phone = args.get("guest_phone") or args.get("caller_phone")
+        if name in ("create_reservation", "create_order", "take_message") and phone is not None:
+            if not guard.valid_phone(phone) and (result.get("created") or result.get("ok")):
+                self.failures.append(f"invalid phone accepted by {name}: {phone!r}")
+        if guard.tool_success(name, result):
+            self.tools_ok.add(name)
+
+    def on_bot(self, text: str):
+        for kind in guard.unverified_claims(text, self.tools_ok):
+            self.failures.append(f"FAKE CLAIM ({kind}): {text[:120]!r}")
+        for phrase in guard.style_violations(text):
+            self.failures.append(f"banned style {phrase!r}: {text[:100]!r}")
+        if text.count("?") > 1:
+            self.failures.append(f"multiple questions in one turn: {text[:120]!r}")
+        if guard.is_clarification(text):
+            self.clarify_strikes += 1
+            if self.clarify_strikes > guard.MAX_CLARIFY_STRIKES:
+                self.failures.append(f"clarification loop (>{guard.MAX_CLARIFY_STRIKES}): {text[:100]!r}")
+        else:
+            self.clarify_strikes = 0
+
+    def report(self) -> bool:
+        if self.failures:
+            print(f"\n{C['you']}CHECKS FAILED:{C['off']}")
+            for f in self.failures:
+                print(f"  ✗ {f}")
+            return False
+        print(f"\n{C['bot']}all acceptance checks passed{C['off']}")
+        return True
+
+
+def run_turn(base: str, slug: str, messages: list, user_text: str,
+             checker: CallChecker | None = None) -> None:
     messages.append({"role": "user", "content": user_text})
     for _ in range(6):  # allow a few tool rounds per turn
         msg = openai_chat(messages)
         messages.append(msg)
         tool_calls = msg.get("tool_calls")
         if not tool_calls:
-            print(f"{C['bot']}bot>{C['off']} {msg.get('content', '')}")
+            text = msg.get("content", "") or ""
+            print(f"{C['bot']}bot>{C['off']} {text}")
+            if checker:
+                checker.on_bot(text)
             return
         for tc in tool_calls:
             name = tc["function"]["name"]
@@ -129,6 +176,8 @@ def run_turn(base: str, slug: str, messages: list, user_text: str) -> None:
             print(f"   {C['tool']}→ {name}({json.dumps(args)}){C['off']}")
             result = exec_tool(base, slug, name, args)
             print(f"   {C['tool']}← {json.dumps(result)}{C['off']}")
+            if checker and isinstance(result, dict):
+                checker.on_tool(name, args, result)
             messages.append({"role": "tool", "tool_call_id": tc["id"], "content": json.dumps(result)})
     print(f"{C['dim']}(stopped after 6 tool rounds){C['off']}")
 
@@ -138,6 +187,8 @@ def main() -> None:
     ap.add_argument("--slug", default="luigis-carlton")
     ap.add_argument("--base", default=os.getenv("BASE", "http://127.0.0.1:8080"))
     ap.add_argument("--scenario", help="file of caller lines (one per row; # = comment)")
+    ap.add_argument("--check", action="store_true",
+                    help="apply guard.py acceptance criteria; exit 1 on any failure")
     a = ap.parse_args()
 
     if not os.getenv("OPENAI_API_KEY"):
@@ -158,13 +209,16 @@ def main() -> None:
     print(f"{C['bot']}bot>{C['off']} (greeting is spoken on real calls; start typing the caller's side)")
 
     if a.scenario:
+        checker = CallChecker() if a.check else None
         with open(a.scenario) as f:
             for line in f:
                 line = line.strip()
                 if not line or line.startswith("#"):
                     continue
                 print(f"{C['you']}you>{C['off']} {line}")
-                run_turn(a.base, a.slug, messages, line)
+                run_turn(a.base, a.slug, messages, line, checker=checker)
+        if checker and not checker.report():
+            sys.exit(1)
     else:
         while True:
             try:
