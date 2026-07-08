@@ -26,14 +26,32 @@ from .models import (
 PHONE_DIGITS_RE = __import__("re").compile(r"\d")
 
 
+PHONE_STRICT_US = os.getenv("PHONE_STRICT_US", "1") == "1"
+
+
 def require_callback_phone(raw: str) -> str:
     """Safety rule: a usable callback number is required for reservations,
-    orders, and messages. Accepts E.164 or national format; requires >= 10
-    digits (or 9 starting with 0 dropped after a country code, e.g. AU mobiles
-    +61 4xx xxx xxx). Returns normalized digits, raises 422 otherwise."""
-    digits = "".join(PHONE_DIGITS_RE.findall(raw or ""))
-    if raw and raw.strip().startswith("+") and len(digits) >= 10:
-        return "+" + digits
+    orders, and messages. Returns the normalized number, raises 422 otherwise.
+
+    Default US-strict (PHONE_STRICT_US=1): exactly 10 digits; an 11-digit number
+    starting with 1 is normalized to 10; anything else (incl. 9 digits) is
+    rejected — never guess missing digits, never add a leading zero. Explicit
+    E.164 (+…) is always accepted. Set PHONE_STRICT_US=0 for non-US tenants
+    (e.g. AU 9-digit mobiles)."""
+    raw = raw or ""
+    digits = "".join(PHONE_DIGITS_RE.findall(raw))
+
+    if raw.strip().startswith("+") and len(digits) >= 10:
+        return "+" + digits                        # explicit international
+
+    if PHONE_STRICT_US:
+        if len(digits) == 11 and digits.startswith("1"):
+            digits = digits[1:]                    # strip US country code
+        if len(digits) == 10:
+            return digits
+        raise HTTPException(422, "callback phone must be a valid 10-digit US number")
+
+    # permissive multi-locale (non-US tenants)
     if len(digits) == 10 or (len(digits) == 9 and not digits.startswith("0")):
         return digits
     if len(digits) == 11 and digits.startswith(("0", "1")):
@@ -215,6 +233,12 @@ def create_reservation(slug: str, r: ReservationCreate, session: Session = Depen
     cached = idem_get(session, biz.id, r.idempotency_key, "reservations")
     if cached is not None:
         return cached
+    # Field sanity (server-side, not prompt): a garbled turn must not become a
+    # booking. Party size must be a real positive number; the name must be real.
+    if r.party_size < 1:
+        raise HTTPException(422, "party size must be at least 1")
+    if len(r.guest_name.strip()) < 2:
+        raise HTTPException(422, "a guest name is required")
     r.guest_phone = require_callback_phone(r.guest_phone)
     # Large-party threshold: never auto-book above it — the agent should take
     # a message / escalate instead. Enforced server-side, not just in prompt.

@@ -23,7 +23,7 @@ WORKDIR /app
 # Control-plane deps first (best layer caching), then the hosted pipecat extras.
 COPY requirements-hosted.txt ./
 RUN pip install -r requirements-hosted.txt \
- && pip install "pipecat-ai[webrtc,silero,deepgram,openai,cartesia,runner]==1.5.0" \
+ && pip install "pipecat-ai[webrtc,silero,deepgram,openai,cartesia,groq,runner]==1.5.0" \
  && (pip install pyrnnoise || echo "pyrnnoise unavailable — DENOISE will no-op")
 
 COPY . .

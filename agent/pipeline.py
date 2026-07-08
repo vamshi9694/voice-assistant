@@ -82,7 +82,6 @@ def build_services(language: str = "en", voices: dict | None = None):
     if STACK == "hosted":
         from pipecat.services.cartesia.tts import CartesiaTTSService, GenerationConfig
         from pipecat.services.deepgram.stt import DeepgramSTTService
-        from pipecat.services.openai.llm import OpenAILLMService
         from pipecat.transcriptions.language import Language
 
         dg_lang = {"en": "en-US", "es": "es", "multi": "multi"}.get(language, "en-US")
@@ -106,7 +105,20 @@ def build_services(language: str = "en", voices: dict | None = None):
                 utterance_end_ms=int(os.getenv("DG_UTTERANCE_END_MS", "1000")),
             ),
         )
-        llm = OpenAILLMService(model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"))
+        # LLM provider. Groq (Llama 3.3 70B) has ~sub-200ms, consistent time-to-
+        # first-token — the fix for OpenAI's spiky rate-tier latency. Both support
+        # tool calling. LLM_PROVIDER=groq | openai (default).
+        if os.getenv("LLM_PROVIDER", "openai").lower() == "groq":
+            from pipecat.services.groq.llm import GroqLLMService
+            llm = GroqLLMService(
+                api_key=os.getenv("GROQ_API_KEY"),
+                model=os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"),
+            )
+            logger.info(f"LLM: Groq {os.getenv('GROQ_MODEL', 'llama-3.3-70b-versatile')}")
+        else:
+            from pipecat.services.openai.llm import OpenAILLMService
+            llm = OpenAILLMService(model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"))
+            logger.info(f"LLM: OpenAI {os.getenv('OPENAI_MODEL', 'gpt-4o-mini')}")
         # Cartesia synthesis language. Bilingual ("multi") defaults to English;
         # sonic-3.5 is multilingual so Spanish replies still render acceptably
         # through the same voice (set a per-language voice in the tenant's
